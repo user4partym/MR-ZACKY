@@ -12,11 +12,10 @@
 #   2. Zip ko unzip karo — andar friends.json milegi.
 #   3. friends.json ko is file (MR ZACKY.py) ke saath wale folder me rakho.
 #   4. Chalao:  python3 "MR ZACKY.py"
-#   5. List ban jayegi: MR-ZACKY-friends.txt
+#   5. Menu se [1] chunno — list ban jayegi: MR-ZACKY-friends.txt
 #
 # Common passwords wali list (common-passwords.txt) isi folder me hai.
-# Apni nayi IDs ke liye us me se password chunne ho to:
-#      python3 "MR ZACKY.py" passwords 5
+# Menu se [2] chunno, ya seedha:  python3 "MR ZACKY.py" passwords 5
 # ============================================================
 
 import json
@@ -26,6 +25,42 @@ import re
 import sys
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+
+GREEN = "\033[1;32m"
+CYAN = "\033[1;36m"
+MAGENTA = "\033[1;35m"
+YELLOW = "\033[1;33m"
+WHITE = "\033[1;37m"
+RESET = "\033[0m"
+
+BANNER = r"""
+███╗   ███╗██████╗     ███████╗ █████╗  ██████╗██╗  ██╗██╗   ██╗
+████╗ ████║██╔══██╗    ╚══███╔╝██╔══██╗██╔════╝██║ ██╔╝╚██╗ ██╔╝
+██╔████╔██║██████╔╝      ███╔╝ ███████║██║     █████╔╝  ╚████╔╝
+██║╚██╔╝██║██╔══██╗     ███╔╝  ██╔══██║██║     ██╔═██╗   ╚██╔╝
+██║ ╚═╝ ██║██║  ██║    ███████╗██║  ██║╚██████╗██║  ██╗   ██║
+╚═╝     ╚═╝╚═╝  ╚═╝    ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝   ╚═╝
+"""
+
+
+def show_banner():
+    print(GREEN + BANNER + RESET)
+    print(GREEN + "=" * 64 + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "OWNER    " + RESET + ": " + WHITE + "MR ZACKY" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "FACEBOOK " + RESET + ": " + WHITE + "MR ZACK" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.0.0" + RESET)
+    print(GREEN + "=" * 64 + RESET)
+
+
+def show_menu():
+    print("")
+    print(CYAN + "[1] " + RESET + "Friends List Nikalo")
+    print(CYAN + "[2] " + RESET + "Random Common Passwords")
+    print(CYAN + "[0] " + RESET + "Exit")
+    print("")
 
 
 def id_from_url(url):
@@ -82,7 +117,7 @@ def load_html(path):
 
 
 def friends_list():
-    print("=== MR ZACKY — Facebook Friends List ===")
+    print(YELLOW + "=== Friends List ===" + RESET)
     friends = []
     if os.path.exists(os.path.join(BASE, "friends.json")):
         friends = load_json(os.path.join(BASE, "friends.json"))
@@ -120,6 +155,30 @@ def random_passwords(n=5):
         print(" - %s" % w)
 
 
+def menu():
+    show_banner()
+    while True:
+        show_menu()
+        try:
+            choice = input("Option chunno: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAllah Hafiz!")
+            return
+        if choice == "1":
+            friends_list()
+        elif choice == "2":
+            try:
+                n = int(input("Kitne passwords chahiye? (default 5): ").strip() or "5")
+            except ValueError:
+                n = 5
+            random_passwords(n)
+        elif choice == "0":
+            print("Allah Hafiz!")
+            return
+        else:
+            print("Ghalat option — 1, 2 ya 0 likho.")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "passwords":
         try:
@@ -127,5 +186,7 @@ if __name__ == "__main__":
         except ValueError:
             n = 5
         random_passwords(n)
-    else:
+    elif len(sys.argv) > 1 and sys.argv[1] == "friends":
         friends_list()
+    else:
+        menu()
