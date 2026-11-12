@@ -20,6 +20,10 @@
 # DEMO MODE: agar friends.json / friends.html na mile to script
 # demo list dikhata hai ta ke Termux me abhi test kar sako.
 # Asli list ke liye apni friends.json is file ke saath rakho.
+#
+# USERNAME SE ID: Menu se [3] chunno — Facebook username do
+# (jaise Man50or), us ka numeric Facebook ID nikal aayega aur
+# MR-ZACKY-ids.txt me save ho jayega.
 # ============================================================
 
 import json
@@ -27,6 +31,8 @@ import os
 import random
 import re
 import sys
+import urllib.parse
+import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -63,6 +69,7 @@ def show_menu():
     print("")
     print(CYAN + "[1] " + RESET + "Friends List Nikalo")
     print(CYAN + "[2] " + RESET + "Random Common Passwords")
+    print(CYAN + "[3] " + RESET + "Username se Facebook ID Nikalo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -166,6 +173,82 @@ def random_passwords(n=5):
         print(" - %s" % w)
 
 
+def _lookup_via_urllib(username):
+    """urllib se lookup — pehla tareeqa."""
+    url = "https://lookup-id.com/"
+    data = urllib.parse.urlencode({
+        "fburl": "https://www.facebook.com/" + username,
+        "check": "Lookup",
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://lookup-id.com/",
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        html = resp.read().decode("utf-8", errors="ignore")
+    m = re.search(r'<span id="code">(\d+)</span>', html)
+    return m.group(1) if m else None
+
+
+def _lookup_via_curl(username):
+    """curl se lookup — backup tareeqa (Termux me curl hota hai)."""
+    import shutil
+    import subprocess
+    if not shutil.which("curl"):
+        return None
+    cmd = ["curl", "-sL", "-A",
+           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+           "-X", "POST",
+           "-d", "fburl=https://www.facebook.com/" + username + "&check=Lookup",
+           "https://lookup-id.com/"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=60)
+    except Exception:
+        return None
+    html = out.stdout.decode("utf-8", errors="ignore")
+    m = re.search(r'<span id="code">(\d+)</span>', html)
+    return m.group(1) if m else None
+
+
+def username_to_id(username):
+    """Facebook username (ya profile link) se numeric Facebook ID nikalna."""
+    username = (username or "").strip()
+    # Link di ho to username nikal lo: facebook.com/Man50or -> Man50or
+    m = re.search(r"facebook\.com/([^/?#]+)", username)
+    if m:
+        username = m.group(1)
+    username = username.strip("/").strip()
+    if not username:
+        print("Username khali hai.")
+        return None
+    if username.lower().startswith("profile.php"):
+        print("Ye link profile.php wala hai — username wala link do, jaise facebook.com/Man50or")
+        return None
+    fb_id = None
+    try:
+        fb_id = _lookup_via_urllib(username)
+    except Exception:
+        fb_id = None
+    if not fb_id:
+        fb_id = _lookup_via_curl(username)
+    if not fb_id:
+        print("ID nahi mili — internet check karo aur username sahi likho (jaise Man50or).")
+        print("Agar curl nahi hai to Termux me chalao: pkg install curl")
+        return None
+    print("Username : %s" % username)
+    print("Facebook ID : %s" % fb_id)
+    print("Profile  : https://www.facebook.com/profile.php?id=%s" % fb_id)
+    # List me save karo — MR-ZACKY-ids.txt
+    out_path = os.path.join(BASE, "MR-ZACKY-ids.txt")
+    with open(out_path, "a", encoding="utf-8") as f:
+        f.write("%s — %s — https://www.facebook.com/profile.php?id=%s\n" % (username, fb_id, fb_id))
+    print("Save ho gayi: %s" % out_path)
+    return fb_id
+
+
 def menu():
     show_banner()
     while True:
@@ -183,11 +266,14 @@ def menu():
             except ValueError:
                 n = 5
             random_passwords(n)
+        elif choice == "3":
+            username = input("Facebook username do (jaise Man50or): ").strip()
+            username_to_id(username)
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -199,5 +285,10 @@ if __name__ == "__main__":
         random_passwords(n)
     elif len(sys.argv) > 1 and sys.argv[1] == "friends":
         friends_list()
+    elif len(sys.argv) > 1 and sys.argv[1] == "id":
+        if len(sys.argv) > 2:
+            username_to_id(sys.argv[2])
+        else:
+            print("Username bhi do: python3 \"MR ZACKY.py\" id Man50or")
     else:
         menu()
