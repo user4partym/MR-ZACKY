@@ -470,7 +470,7 @@ def check_members_public():
     if os.path.exists(txt_path):
         with open(txt_path, encoding="utf-8") as f:
             for line in f:
-                m = re.match(r"\d+\.\s+(.*?)\s+—\s+(\S+)\s+—\s+(\S+)", line.strip())
+                m = re.match(r"(?:\d+\.\s+)?(.*?)\s+—\s+(\S+)\s+—\s+(\S+)", line.strip())
                 if m:
                     members.append((m.group(1), m.group(2), m.group(3)))
         print("MR-ZACKY-group-members.txt se %d members mile." % len(members))
