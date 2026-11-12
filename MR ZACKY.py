@@ -31,6 +31,12 @@
 # script us ko khol kar asli group link nikalta hai.
 # Naam wale group (facebook.com/groups/python) ki ID
 # bina login ke nahi nikalti — us ke link me jo number hai wohi ID hai.
+#
+# GROUP MEMBERS: Menu se [5] chunno — group ke Members page ki
+# save ki hui file (members.html ya members.mhtml) se members ki
+# list nikalta hai. Poori list bina login ke kahin se nahi nikalti —
+# Facebook sirf gin ti dikhata hai. Apne browser se Members page
+# save karo, file is folder me rakho, phir [5] dabao.
 # ============================================================
 
 import json
@@ -78,6 +84,7 @@ def show_menu():
     print(CYAN + "[2] " + RESET + "Random Common Passwords")
     print(CYAN + "[3] " + RESET + "Username se Facebook ID Nikalo")
     print(CYAN + "[4] " + RESET + "Group ki Facebook ID Nikalo")
+    print(CYAN + "[5] " + RESET + "Group ke Members ki List Nikalo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -347,6 +354,64 @@ def group_to_id(group_input):
     return None
 
 
+def load_members_file(path):
+    """Members page ki save ki hui file (html ya mhtml) se members nikalna."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    if path.lower().endswith(".mhtml"):
+        # Chrome ka save kiya hua page — quoted-printable decode karo.
+        import quopri
+        raw = quopri.decodestring(raw)
+    html = raw.decode("utf-8", errors="ignore")
+    out = []
+    seen = set()
+    for url, name in re.findall(
+        r'<a href="(https://www\.facebook\.com/[^"]+)"[^>]*>([^<]+)</a>', html
+    ):
+        # Sirf profile wale links lo — group ke andar ke tabs nahi.
+        if "/groups/" in url or "facebook.com/groups" in url:
+            continue
+        fid = id_from_url(url)
+        if fid and fid not in seen:
+            seen.add(fid)
+            out.append((name.strip(), fid, url))
+    return out
+
+
+def group_members():
+    print(YELLOW + "=== Group ke Members ===" + RESET)
+    members = []
+    found = None
+    for fname in ("members.html", "members.mhtml", "group-members.html"):
+        p = os.path.join(BASE, fname)
+        if os.path.exists(p):
+            found = fname
+            members = load_members_file(p)
+            print("%s se parha gaya." % fname)
+            break
+    if not found:
+        print("members.html nahi mili — is liye list nahi ban saki.")
+        print("")
+        print("Tareeqa:")
+        print("1. Browser me group kholo, upar Members tab par jao.")
+        print("2. Page ko save karo (Chrome: menu > Download / Save page).")
+        print("3. File ka naam members.html rakho aur is folder me daalo.")
+        print("4. Phir [5] dabao — list ban jayegi: MR-ZACKY-group-members.txt")
+        print("")
+        print("Note: poori list (jaise 867K members) bina login ke kahin se")
+        print("nahi nikalti — Facebook sirf gin ti dikhata hai. Jo members")
+        print("page par load honge, un ki list banegi.")
+        return
+    out_path = os.path.join(BASE, "MR-ZACKY-group-members.txt")
+    with open(out_path, "w", encoding="utf-8") as f:
+        for i, (name, fid, url) in enumerate(members, 1):
+            f.write("%d. %s — %s — %s\n" % (i, name, fid, url))
+    print("Total members mile: %d" % len(members))
+    print("List save ho gayi: %s" % out_path)
+    for name, fid, url in members[:10]:
+        print(" - %s (%s)" % (name, fid))
+
+
 def menu():
     show_banner()
     while True:
@@ -370,11 +435,13 @@ def menu():
         elif choice == "4":
             group_input = input("Facebook group ka link do (jaise facebook.com/groups/1234567890): ").strip()
             group_to_id(group_input)
+        elif choice == "5":
+            group_members()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -396,5 +463,7 @@ if __name__ == "__main__":
             group_to_id(sys.argv[2])
         else:
             print("Group ka link bhi do: python3 \"MR ZACKY.py\" group https://www.facebook.com/groups/1234567890")
+    elif len(sys.argv) > 1 and sys.argv[1] == "members":
+        group_members()
     else:
         menu()
