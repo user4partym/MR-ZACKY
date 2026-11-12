@@ -52,6 +52,19 @@
 # (MR-ZACKY-friends-ids.txt, har line par ek number).
 # Seedha friends page se nahi nikalta — Facebook friends list
 # bina login ke nahi deta, is liye page save kar ke lao.
+# LOGIN HO TO [7] seedha bhi fetch kar sakta hai (neeche LOGIN dekho).
+#
+# LOGIN (COOKIE SE): Menu se [8] chunno — Facebook ID se login
+# karo ta ke [7] friends list seedha nikal sake. Do tareeqe:
+#  (1) Cookie paste karo — browser me login hui ID ki cookie
+#      (c_user=...; xs=...) yahan paste karo, session save ho jayega.
+#  (2) Email + password se ek dafa login karo — script password
+#      kahin save NAHI karta, sirf session cookie save karta hai.
+# WARNING: fb-cookies.txt me tumhara login session hai — ye file
+# kisi ko mat do aur GitHub par mat dalo. Is se tumhara Facebook
+# account khul jata hai. Sirf apne phone me rakho.
+# Checkpoint (code/selfie) aaye to script ruk jata hai — us ko
+# browser me khud karo, phir cookie paste kar do.
 # ============================================================
 
 import json
@@ -102,6 +115,7 @@ def show_menu():
     print(CYAN + "[5] " + RESET + "Group ke Members ki List Nikalo")
     print(CYAN + "[6] " + RESET + "Members ki ID Public Check")
     print(CYAN + "[7] " + RESET + "Public ID ki Friends List se IDs Nikalo")
+    print(CYAN + "[8] " + RESET + "Facebook Login (Cookie se)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -479,6 +493,240 @@ def check_profile_public(url):
     return "public"
 
 
+# Facebook login (cookie se) — fb-cookies.txt me session save hota hai.
+# WARNING: fb-cookies.txt me tumhara login session hai — ye file kisi
+# ko mat do aur GitHub par mat dalo. Is se tumhara Facebook account
+# khul jata hai. Sirf apne phone me rakho.
+
+MOBILE_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+COOKIE_FILE = "fb-cookies.txt"
+
+
+def load_cookies():
+    p = os.path.join(BASE, COOKIE_FILE)
+    if not os.path.exists(p):
+        return ""
+    with open(p, encoding="utf-8", errors="ignore") as f:
+        return f.read().strip()
+
+
+def save_cookies(cookie_str):
+    p = os.path.join(BASE, COOKIE_FILE)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(cookie_str.strip())
+    try:
+        os.chmod(p, 0o600)
+    except Exception:
+        pass
+    print("Session save ho gayi: %s" % p)
+    print("WARNING: ye file tumhara login session hai — kisi ko mat do.")
+
+
+def parse_netscape_cookies(text):
+    """cookies.txt (Netscape format) se facebook.com wale cookies nikalna."""
+    pairs = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 7 and "facebook" in parts[0]:
+            pairs.append("%s=%s" % (parts[5], parts[6]))
+    return "; ".join(pairs)
+
+
+def fb_fetch_full(url):
+    """Cookie ke saath page fetch karo — (html, final_url) ya (None, None)."""
+    cookie = load_cookies()
+    if not cookie:
+        return None, None
+    headers = {"User-Agent": MOBILE_UA, "Cookie": cookie}
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8", errors="ignore"), resp.geturl()
+    except Exception:
+        pass
+    import shutil
+    import subprocess
+    if shutil.which("curl"):
+        try:
+            out = subprocess.run(
+                ["curl", "-sL", "-A", MOBILE_UA, "-H", "Cookie: " + cookie,
+                 "-w", "\n%{url_effective}", url],
+                capture_output=True, timeout=60)
+            text = out.stdout.decode("utf-8", errors="ignore")
+            if "\n" in text:
+                body, final = text.rsplit("\n", 1)
+                return body, final.strip()
+            return text, url
+        except Exception:
+            pass
+    return None, None
+
+
+def fb_fetch(url):
+    """Saved cookie ke saath Facebook page fetch karo (urllib, phir curl)."""
+    html, _ = fb_fetch_full(url)
+    return html
+
+
+def fb_whoami():
+    """Session check — (naam, profile_link) ya (None, None).
+    /me kholo to logged-in ID ki profile khulti hai — us ke title
+    me us ka naam hota hai (jaise 'MANSOOR ALI | Facebook')."""
+    html, final_url = fb_fetch_full("https://mbasic.facebook.com/me")
+    if not html:
+        return None, None
+    if "login.php" in html and "Log in" in html:
+        return None, None
+    name = ""
+    m = re.search(r"<title>(?:\(\d+\)\s*)?([^|<]+)", html)
+    if m:
+        name = m.group(1).strip()
+    if not name or name.lower() in ("facebook", "log in", "login"):
+        m = re.search(r'og:title" content="([^"]*)"', html)
+        if m:
+            name = m.group(1).strip()
+    if not name or name.lower() in ("facebook", "log in", "login"):
+        return None, None
+    return name, final_url
+
+
+def _mbasic_login(email, password):
+    """mbasic se login — form parho, POST karo, cookies nikalo.
+    Checkpoint/2FA aaye to ruk jao (None) — us ko browser se karo."""
+    import http.cookiejar
+    import urllib.error
+    import urllib.parse
+    login_url = "https://mbasic.facebook.com/login.php"
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    try:
+        req = urllib.request.Request(login_url, headers={"User-Agent": MOBILE_UA})
+        with opener.open(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        print("Login page nahi khula: %s" % e)
+        return None
+    m = re.search(r'<form[^>]*action="([^"]+)"[^>]*>', html)
+    action = m.group(1) if m else "/login/device-based/regular/login/?refsrc=deprecated&lwv=100"
+    if action.startswith("/"):
+        action = "https://mbasic.facebook.com" + action
+    elif action.startswith("http"):
+        pass
+    else:
+        action = "https://mbasic.facebook.com/" + action
+    fields = {}
+    for name, value in re.findall(
+        r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html
+    ):
+        fields[name] = value
+    email_field = "email"
+    pass_field = "pass"
+    for name in re.findall(r'<input[^>]*name="([^"]+)"', html):
+        if name.lower() in ("email", "m_login_email"):
+            email_field = name
+        if name.lower() == "pass":
+            pass_field = name
+    fields[email_field] = email
+    fields[pass_field] = password
+    data = urllib.parse.urlencode(fields).encode("utf-8")
+    try:
+        req = urllib.request.Request(action, data=data, headers={
+            "User-Agent": MOBILE_UA,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": login_url,
+        })
+        with opener.open(req, timeout=30) as resp:
+            resp_html = resp.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as e:
+        try:
+            resp_html = e.read().decode("utf-8", errors="ignore")
+        except Exception:
+            resp_html = ""
+    except Exception as e:
+        print("Login request fail: %s" % e)
+        return None
+    low = resp_html.lower()
+    if "checkpoint" in low or "two-factor" in low or "login approval" in low or "confirm your identity" in low:
+        print("Facebook ne CHECKPOINT manga hai (code/selfie).")
+        print("Script yahin ruk raha hai — checkpoint browser me khud karo,")
+        print("phir [8] option 1 se cookie paste kar do.")
+        return None
+    pairs = []
+    for c in jar:
+        if "facebook" in c.domain:
+            pairs.append("%s=%s" % (c.name, c.value))
+    cookie = "; ".join(pairs)
+    if "c_user=" not in cookie:
+        print("Login nahi hua — email/password galat ho sakta hai, ya Facebook ne rok diya.")
+        print("Browser se login kar ke [8] option 1 se cookie paste karo.")
+        return None
+    return cookie
+
+
+def fb_login_password():
+    import getpass
+    email = input("Facebook email/phone do: ").strip()
+    password = getpass.getpass("Password do (screen par nahi dikhega): ")
+    if not email or not password:
+        print("Email/password khali hai.")
+        return
+    print("Login kar raha hun... (password kahin save nahi hota)")
+    cookie = _mbasic_login(email, password)
+    if cookie:
+        save_cookies(cookie)
+        name, link = fb_whoami()
+        if name:
+            print("Login ho gaya!")
+            print("ID ka naam: %s" % name)
+            print("Profile: %s" % link)
+            print("Is time ye ID logged in hai.")
+        else:
+            print("Cookie mili par session check nahi hua — dobara [8] se check karo.")
+
+
+def fb_login():
+    print(YELLOW + "=== Facebook Login (Cookie se) ===" + RESET)
+    if load_cookies():
+        name, link = fb_whoami()
+        if name:
+            print("Pehle se login hai: %s (%s)" % (name, link))
+        else:
+            print("Cookie save hai par session check nahi hua (expire ho sakti hai).")
+    print("1. Cookie paste karo (browser se li hui)")
+    print("2. Email + password se login karo (ek dafa, phir cookie save)")
+    print("0. Wapas")
+    choice = input("Option chunno: ").strip()
+    if choice == "1":
+        print("Browser me Facebook kholo (jis ID se login hai), us ki cookie")
+        print("copy karo aur yahan paste karo. (c_user=...; xs=...; sb=... jaisi line)")
+        raw = input("Cookie paste karo: ").strip()
+        if not raw:
+            print("Cookie khali hai.")
+            return
+        cookie = parse_netscape_cookies(raw) if ("\t" in raw and "facebook" in raw) else raw
+        if "c_user" not in cookie:
+            print("Cookie me c_user nahi mila — poori cookie line paste karo.")
+            return
+        save_cookies(cookie)
+        name, link = fb_whoami()
+        if name:
+            print("Login ho gaya!")
+            print("ID ka naam: %s" % name)
+            print("Profile: %s" % link)
+            print("Is time ye ID logged in hai.")
+        else:
+            print("Cookie save ho gayi par session check nahi hua — cookie galat ya expire ho sakti hai.")
+    elif choice == "2":
+        fb_login_password()
+    elif choice == "0":
+        return
+    else:
+        print("Ghalat option.")
+
+
 def check_members_public():
     print(YELLOW + "=== Members ki ID Public Check ===" + RESET)
     members = []
@@ -541,14 +789,8 @@ def check_members_public():
     print("Public wali list save ho gayi: %s" % out_path)
 
 
-def load_friends_file(path):
-    """Friends page ki save ki hui file se doston ke profile links nikalna."""
-    with open(path, "rb") as f:
-        raw = f.read()
-    if path.lower().endswith(".mhtml"):
-        import quopri
-        raw = quopri.decodestring(raw)
-    html = raw.decode("utf-8", errors="ignore")
+def _parse_friends_html(html):
+    """Friends page ke HTML se doston ke profile links nikalna."""
     out = []
     seen = set()
     skip = {"friends", "watch", "groups", "pages", "marketplace", "gaming",
@@ -559,7 +801,7 @@ def load_friends_file(path):
             "jobs", "offers", "weather", "ads", "business", "sharer",
             "dialog", "plugins", "checkpoint", "tr", "ajax"}
     for url, name in re.findall(
-        r'<a href="(https://www\.facebook\.com/[^"]+)"[^>]*>([^<]+)</a>', html
+        r'<a href="(https://[a-z0-9.-]*facebook\.com/[^"]+)"[^>]*>([^<]+)</a>', html
     ):
         if "/groups/" in url:
             continue
@@ -576,8 +818,70 @@ def load_friends_file(path):
     return out
 
 
+def load_friends_file(path):
+    """Friends page ki save ki hui file se doston ke profile links nikalna."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    if path.lower().endswith(".mhtml"):
+        import quopri
+        raw = quopri.decodestring(raw)
+    html = raw.decode("utf-8", errors="ignore")
+    return _parse_friends_html(html)
+
+
+def _fetch_friends_online(who):
+    """Login session se mbasic friends page fetch kar ke dost nikalna."""
+    m = re.search(r"facebook\.com/([^/?#]+)", who)
+    username = m.group(1) if m else who.strip().strip("/")
+    if not username or username.lower().startswith("profile.php"):
+        print("Username do (jaise Man50or) ya profile link.")
+        return []
+    html = fb_fetch("https://mbasic.facebook.com/" + username + "/friends")
+    if not html:
+        print("Friends page nahi khula — session check karo ([8] se login).")
+        return []
+    if "login.php" in html and "Log in" in html:
+        print("Session expire ho gayi — [8] se dobara login karo.")
+        return []
+    return _parse_friends_html(html)
+
+
+def _write_friends_ids(friends):
+    """Doston ki list se ID-only file likhna. Returns kitni IDs likhi."""
+    import time
+    out_path = os.path.join(BASE, "MR-ZACKY-friends-ids.txt")
+    total = 0
+    with open(out_path, "w", encoding="utf-8") as f:
+        for name, fid, url in friends:
+            # List me sirf ID code — naam nahi.
+            if fid.isdigit():
+                f.write("%s\n" % fid)
+                total += 1
+            else:
+                fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
+                if fb_id:
+                    f.write("%s\n" % fb_id)
+                    total += 1
+                time.sleep(1)
+    print("Total doston ki IDs mili: %d" % total)
+    print("List save ho gayi: %s" % out_path)
+    print("List me sirf ID code hain (naam nahi).")
+    return total
+
+
 def friends_ids():
     print(YELLOW + "=== Public ID ki Friends List se IDs ===" + RESET)
+    # 1) Login session ho to seedha fetch karo.
+    if load_cookies():
+        who = input("Kis public ID ki friends list chahiye? (username ya link, khali = file wala tareeqa): ").strip()
+        if who:
+            print("Login session se friends list khol raha hun...")
+            friends = _fetch_friends_online(who)
+            if friends:
+                _write_friends_ids(friends)
+                return
+            print("Seedha fetch se koi dost nahi mila — file wala tareeqa try karta hun.")
+    # 2) File wala tareeqa (save ki hui friends.html).
     friends = []
     found = None
     for fname in ("friends.html", "friends.mhtml", "public-friends.html"):
@@ -600,29 +904,18 @@ def friends_ids():
         print("friends list bina login ke nahi deta, is liye save ki hui")
         print("file chahiye. Sirf wo dost aayenge jin ki list page par")
         print("load hui ho.")
+        print("Login ho to [8] se login karo — phir [7] seedha fetch karega.")
         return
-    import time
-    out_path = os.path.join(BASE, "MR-ZACKY-friends-ids.txt")
-    total = 0
-    with open(out_path, "w", encoding="utf-8") as f:
-        for name, fid, url in friends:
-            # List me sirf ID code — naam nahi.
-            if fid.isdigit():
-                f.write("%s\n" % fid)
-                total += 1
-            else:
-                fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
-                if fb_id:
-                    f.write("%s\n" % fb_id)
-                    total += 1
-                time.sleep(1)
-    print("Total doston ki IDs mili: %d" % total)
-    print("List save ho gayi: %s" % out_path)
-    print("List me sirf ID code hain (naam nahi).")
+    _write_friends_ids(friends)
 
 
 def menu():
     show_banner()
+    # Login ho to upar hi dikha do ke is time kaun si ID logged in hai.
+    if load_cookies():
+        name, link = fb_whoami()
+        if name:
+            print(GREEN + "Logged in: " + RESET + "%s (%s)" % (name, link))
     while True:
         show_menu()
         try:
@@ -650,11 +943,13 @@ def menu():
             check_members_public()
         elif choice == "7":
             friends_ids()
+        elif choice == "8":
+            fb_login()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -682,5 +977,7 @@ if __name__ == "__main__":
         check_members_public()
     elif len(sys.argv) > 1 and sys.argv[1] == "friends-ids":
         friends_ids()
+    elif len(sys.argv) > 1 and sys.argv[1] == "login":
+        fb_login()
     else:
         menu()
