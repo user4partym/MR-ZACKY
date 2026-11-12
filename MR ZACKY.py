@@ -24,6 +24,13 @@
 # USERNAME SE ID: Menu se [3] chunno — Facebook username do
 # (jaise Man50or), us ka numeric Facebook ID nikal aayega aur
 # MR-ZACKY-ids.txt me save ho jayega.
+#
+# GROUP ID: Menu se [4] chunno — Facebook group ka link do.
+# Link me number ho (facebook.com/groups/1234567890) to ID foran
+# nikal aayegi. Share link (facebook.com/share/g/CODE) bhi chalega —
+# script us ko khol kar asli group link nikalta hai.
+# Naam wale group (facebook.com/groups/python) ki ID
+# bina login ke nahi nikalti — us ke link me jo number hai wohi ID hai.
 # ============================================================
 
 import json
@@ -70,6 +77,7 @@ def show_menu():
     print(CYAN + "[1] " + RESET + "Friends List Nikalo")
     print(CYAN + "[2] " + RESET + "Random Common Passwords")
     print(CYAN + "[3] " + RESET + "Username se Facebook ID Nikalo")
+    print(CYAN + "[4] " + RESET + "Group ki Facebook ID Nikalo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -249,6 +257,96 @@ def username_to_id(username):
     return fb_id
 
 
+def _resolve_share_link(share_url):
+    """Share link (facebook.com/share/g/CODE) ko follow kar ke asli group link nikalna.
+    Pehle urllib, phir curl. Facebook kabhi kabhi seedha block kar deta hai —
+    aise me None aata hai."""
+    # urllib — redirects khud follow karta hai, final URL geturl() se milta hai.
+    try:
+        req = urllib.request.Request(share_url, headers={
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            final = resp.geturl()
+            if "groups/" in final:
+                return final
+    except Exception:
+        pass
+    # curl — backup tareeqa.
+    import shutil
+    import subprocess
+    if shutil.which("curl"):
+        try:
+            out = subprocess.run(
+                ["curl", "-sL", "-o", "/dev/null", "-w", "%{url_effective}",
+                 "-A", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                 share_url],
+                capture_output=True, timeout=60)
+            final = out.stdout.decode("utf-8", errors="ignore").strip()
+            if "groups/" in final:
+                return final
+        except Exception:
+            pass
+    return None
+
+
+def group_to_id(group_input):
+    """Facebook group ke link se numeric Group ID nikalna."""
+    text = (group_input or "").strip()
+    if not text:
+        print("Group ka link ya ID khali hai.")
+        return None
+    # 0) Share link ho (facebook.com/share/g/CODE) to pehle asli link nikalo.
+    if "/share/g/" in text:
+        print("Share link hai — asli group link khol raha hun...")
+        final = _resolve_share_link(text)
+        if final:
+            print("Asli link: %s" % final)
+            text = final
+        else:
+            print("Share link nahi khula — Facebook ne block kar diya.")
+            print("Group kholo aur us ke upar wale link (facebook.com/groups/123456...) ko yahan do.")
+            return None
+    # 1) Link me number ho to wohi ID hai — facebook.com/groups/1234567890
+    m = re.search(r"groups/(\d+)", text)
+    if m:
+        group_id = m.group(1)
+        print("Group ID : %s" % group_id)
+        print("Link     : https://www.facebook.com/groups/%s" % group_id)
+        out_path = os.path.join(BASE, "MR-ZACKY-ids.txt")
+        with open(out_path, "a", encoding="utf-8") as f:
+            f.write("GROUP %s — %s — https://www.facebook.com/groups/%s\n" % (text, group_id, group_id))
+        print("Save ho gayi: %s" % out_path)
+        return group_id
+    # 2) Sirf number likha ho to wohi ID hai.
+    if text.isdigit():
+        print("Group ID : %s" % text)
+        print("Link     : https://www.facebook.com/groups/%s" % text)
+        return text
+    # 3) Naam wala group — lookup try karo (aaj kal groups par Not found aata hai).
+    m = re.search(r"facebook\.com/groups/([^/?#]+)", text)
+    name = m.group(1) if m else text
+    print("Naam wala group hai (%s) — lookup try kar raha hun..." % name)
+    fb_id = None
+    try:
+        fb_id = _lookup_via_urllib("groups/" + name)
+    except Exception:
+        fb_id = None
+    if not fb_id:
+        fb_id = _lookup_via_curl("groups/" + name)
+    if fb_id:
+        print("Group ID : %s" % fb_id)
+        print("Link     : https://www.facebook.com/groups/%s" % fb_id)
+        out_path = os.path.join(BASE, "MR-ZACKY-ids.txt")
+        with open(out_path, "a", encoding="utf-8") as f:
+            f.write("GROUP %s — %s — https://www.facebook.com/groups/%s\n" % (name, fb_id, fb_id))
+        print("Save ho gayi: %s" % out_path)
+        return fb_id
+    print("Naam wale group ki ID bina login ke nahi nikalti.")
+    print("Group kholo — us ke link me jo number hai (facebook.com/groups/123456...) wohi us ki ID hai, wo number yahan do.")
+    return None
+
+
 def menu():
     show_banner()
     while True:
@@ -269,11 +367,14 @@ def menu():
         elif choice == "3":
             username = input("Facebook username do (jaise Man50or): ").strip()
             username_to_id(username)
+        elif choice == "4":
+            group_input = input("Facebook group ka link do (jaise facebook.com/groups/1234567890): ").strip()
+            group_to_id(group_input)
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -290,5 +391,10 @@ if __name__ == "__main__":
             username_to_id(sys.argv[2])
         else:
             print("Username bhi do: python3 \"MR ZACKY.py\" id Man50or")
+    elif len(sys.argv) > 1 and sys.argv[1] == "group":
+        if len(sys.argv) > 2:
+            group_to_id(sys.argv[2])
+        else:
+            print("Group ka link bhi do: python3 \"MR ZACKY.py\" group https://www.facebook.com/groups/1234567890")
     else:
         menu()
