@@ -16,6 +16,10 @@
 #
 # Common passwords wali list (common-passwords.txt) isi folder me hai.
 # Menu se [2] chunno, ya seedha:  python3 "MR ZACKY.py" passwords 5
+#
+# DEMO MODE: agar friends.json / friends.html na mile to script
+# demo list dikhata hai ta ke Termux me abhi test kar sako.
+# Asli list ke liye apni friends.json is file ke saath rakho.
 # ============================================================
 
 import json
@@ -119,6 +123,7 @@ def load_html(path):
 def friends_list():
     print(YELLOW + "=== Friends List ===" + RESET)
     friends = []
+    demo = False
     if os.path.exists(os.path.join(BASE, "friends.json")):
         friends = load_json(os.path.join(BASE, "friends.json"))
         print("friends.json se parha gaya.")
@@ -126,11 +131,17 @@ def friends_list():
         friends = load_html(os.path.join(BASE, "friends.html"))
         print("friends.html se parha gaya.")
     else:
-        print("friends.json / friends.html nahi mili.")
-        print("Facebook > Settings > Download your information >")
-        print("'Friends and followers' select kar ke download karo,")
-        print("unzip kar ke friends.json is file ke saath rakho.")
-        return
+        # Demo data — Termux me abhi test karne ke liye.
+        demo = True
+        friends = [
+            ("Demo Dost 1", "100000000000001", "https://www.facebook.com/profile.php?id=100000000000001"),
+            ("Demo Dost 2", "demo.dost.2", "https://www.facebook.com/demo.dost.2"),
+            ("Demo Dost 3", "100000000000003", "https://www.facebook.com/profile.php?id=100000000000003"),
+            ("Demo Dost 4", "demo.dost.4", "https://www.facebook.com/demo.dost.4"),
+            ("Demo Dost 5", "100000000000005", "https://www.facebook.com/profile.php?id=100000000000005"),
+        ]
+        print("friends.json nahi mili — DEMO list dikhayi ja rahi hai.")
+        print("Asli list ke liye apni friends.json is file ke saath rakho.")
 
     out_path = os.path.join(BASE, "MR-ZACKY-friends.txt")
     with open(out_path, "w", encoding="utf-8") as f:
