@@ -37,6 +37,11 @@
 # list nikalta hai. Poori list bina login ke kahin se nahi nikalti —
 # Facebook sirf gin ti dikhata hai. Apne browser se Members page
 # save karo, file is folder me rakho, phir [5] dabao.
+#
+# PUBLIC CHECK: Menu se [6] chunno — members ki list me se har
+# member ki profile khol kar check karta hai ke us ki ID public
+# hai ya nahi. Public ho to us ka Facebook ID code deta hai
+# (MR-ZACKY-public-ids.txt), nahi ho to skip kar deta hai.
 # ============================================================
 
 import json
@@ -85,6 +90,7 @@ def show_menu():
     print(CYAN + "[3] " + RESET + "Username se Facebook ID Nikalo")
     print(CYAN + "[4] " + RESET + "Group ki Facebook ID Nikalo")
     print(CYAN + "[5] " + RESET + "Group ke Members ki List Nikalo")
+    print(CYAN + "[6] " + RESET + "Members ki ID Public Check")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -189,21 +195,24 @@ def random_passwords(n=5):
 
 
 def _lookup_via_urllib(username):
-    """urllib se lookup — pehla tareeqa."""
-    url = "https://lookup-id.com/"
-    data = urllib.parse.urlencode({
-        "fburl": "https://www.facebook.com/" + username,
-        "check": "Lookup",
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Referer": "https://lookup-id.com/",
-    })
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        html = resp.read().decode("utf-8", errors="ignore")
+    """urllib se lookup — pehla tareeqa. Fail ho to None (curl backup hai)."""
+    try:
+        url = "https://lookup-id.com/"
+        data = urllib.parse.urlencode({
+            "fburl": "https://www.facebook.com/" + username,
+            "check": "Lookup",
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Referer": "https://lookup-id.com/",
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return None
     m = re.search(r'<span id="code">(\d+)</span>', html)
     return m.group(1) if m else None
 
@@ -412,6 +421,103 @@ def group_members():
         print(" - %s (%s)" % (name, fid))
 
 
+CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+
+
+def _fetch_profile_html(url):
+    """Profile page fetch karo — crawler user-agent se (public profile ka data milta hai).
+    Pehle urllib, phir curl."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": CRAWLER_UA})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+    except Exception:
+        pass
+    import shutil
+    import subprocess
+    if shutil.which("curl"):
+        try:
+            out = subprocess.run(
+                ["curl", "-sL", "-A", CRAWLER_UA, url],
+                capture_output=True, timeout=60)
+            return out.stdout.decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    return None
+
+
+def check_profile_public(url):
+    """Profile public hai ya nahi: 'public' / 'locked' / 'unknown'."""
+    html = _fetch_profile_html(url)
+    if not html:
+        return "unknown"
+    m = re.search(r'og:title" content="([^"]*)"', html)
+    title = m.group(1).strip() if m else ""
+    if not title or title.lower().startswith("log in"):
+        return "unknown"
+    if "PrivacyLocked" in html:
+        return "locked"
+    if "PrivacyUnlocked" in html:
+        return "public"
+    # Icon na mile to bhi naam dikh raha hai — public mana jayega.
+    return "public"
+
+
+def check_members_public():
+    print(YELLOW + "=== Members ki ID Public Check ===" + RESET)
+    members = []
+    txt_path = os.path.join(BASE, "MR-ZACKY-group-members.txt")
+    if os.path.exists(txt_path):
+        with open(txt_path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"\d+\.\s+(.*?)\s+—\s+(\S+)\s+—\s+(\S+)", line.strip())
+                if m:
+                    members.append((m.group(1), m.group(2), m.group(3)))
+        print("MR-ZACKY-group-members.txt se %d members mile." % len(members))
+    else:
+        for fname in ("members.html", "members.mhtml", "group-members.html"):
+            p = os.path.join(BASE, fname)
+            if os.path.exists(p):
+                members = load_members_file(p)
+                print("%s se %d members mile." % (fname, len(members)))
+                break
+    if not members:
+        print("Pehle [5] se members ki list banao — koi list nahi mili.")
+        return
+    import time
+    out_path = os.path.join(BASE, "MR-ZACKY-public-ids.txt")
+    public_count = 0
+    skipped = 0
+    with open(out_path, "w", encoding="utf-8") as f:
+        for i, (name, fid, url) in enumerate(members, 1):
+            # Profile URL banao: number ho to profile.php, username ho to direct.
+            if fid.isdigit():
+                profile_url = "https://www.facebook.com/profile.php?id=" + fid
+            else:
+                profile_url = "https://www.facebook.com/" + fid
+            status = check_profile_public(profile_url)
+            if status == "public":
+                # Numeric ID chahiye: number hai to wohi, username hai to lookup karo.
+                if fid.isdigit():
+                    fb_id = fid
+                else:
+                    fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
+                if fb_id:
+                    f.write("%s — %s — https://www.facebook.com/profile.php?id=%s\n" % (name, fb_id, fb_id))
+                    print("[%d/%d] PUBLIC : %s — %s" % (i, len(members), name, fb_id))
+                    public_count += 1
+                else:
+                    print("[%d/%d] skip (ID nahi mili): %s" % (i, len(members), name))
+                    skipped += 1
+            else:
+                print("[%d/%d] skip (%s): %s" % (i, len(members), status, name))
+                skipped += 1
+            time.sleep(2)
+    print("")
+    print("Public IDs: %d, skip: %d" % (public_count, skipped))
+    print("Public wali list save ho gayi: %s" % out_path)
+
+
 def menu():
     show_banner()
     while True:
@@ -437,11 +543,13 @@ def menu():
             group_to_id(group_input)
         elif choice == "5":
             group_members()
+        elif choice == "6":
+            check_members_public()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -465,5 +573,7 @@ if __name__ == "__main__":
             print("Group ka link bhi do: python3 \"MR ZACKY.py\" group https://www.facebook.com/groups/1234567890")
     elif len(sys.argv) > 1 and sys.argv[1] == "members":
         group_members()
+    elif len(sys.argv) > 1 and sys.argv[1] == "check-public":
+        check_members_public()
     else:
         menu()
