@@ -34,14 +34,24 @@
 #
 # GROUP MEMBERS: Menu se [5] chunno — group ke Members page ki
 # save ki hui file (members.html ya members.mhtml) se members ki
-# list nikalta hai. Poori list bina login ke kahin se nahi nikalti —
+# list nikalta hai. List me sirf Facebook ID code hote hain
+# (har line par ek number, jaise 1764564212) — naam nahi.
+# Poori list bina login ke kahin se nahi nikalti —
 # Facebook sirf gin ti dikhata hai. Apne browser se Members page
 # save karo, file is folder me rakho, phir [5] dabao.
 #
 # PUBLIC CHECK: Menu se [6] chunno — members ki list me se har
 # member ki profile khol kar check karta hai ke us ki ID public
-# hai ya nahi. Public ho to us ka Facebook ID code deta hai
-# (MR-ZACKY-public-ids.txt), nahi ho to skip kar deta hai.
+# hai ya nahi. Public ho to sirf us ka Facebook ID code deta hai
+# (MR-ZACKY-public-ids.txt, har line par ek number), nahi ho to
+# skip kar deta hai.
+#
+# FRIENDS IDS: Menu se [7] chunno — kisi public Facebook ID ki
+# friends list ki save ki hui file (friends.html ya friends.mhtml)
+# se doston ke Facebook ID code nikalta hai
+# (MR-ZACKY-friends-ids.txt, har line par ek number).
+# Seedha friends page se nahi nikalta — Facebook friends list
+# bina login ke nahi deta, is liye page save kar ke lao.
 # ============================================================
 
 import json
@@ -91,6 +101,7 @@ def show_menu():
     print(CYAN + "[4] " + RESET + "Group ki Facebook ID Nikalo")
     print(CYAN + "[5] " + RESET + "Group ke Members ki List Nikalo")
     print(CYAN + "[6] " + RESET + "Members ki ID Public Check")
+    print(CYAN + "[7] " + RESET + "Public ID ki Friends List se IDs Nikalo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -413,12 +424,17 @@ def group_members():
         return
     out_path = os.path.join(BASE, "MR-ZACKY-group-members.txt")
     with open(out_path, "w", encoding="utf-8") as f:
-        for i, (name, fid, url) in enumerate(members, 1):
-            f.write("%d. %s — %s — %s\n" % (i, name, fid, url))
+        for name, fid, url in members:
+            # List me sirf ID code — naam nahi.
+            if fid.isdigit():
+                f.write("%s\n" % fid)
+            else:
+                fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
+                if fb_id:
+                    f.write("%s\n" % fb_id)
     print("Total members mile: %d" % len(members))
     print("List save ho gayi: %s" % out_path)
-    for name, fid, url in members[:10]:
-        print(" - %s (%s)" % (name, fid))
+    print("List me sirf ID code hain (naam nahi).")
 
 
 CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
@@ -470,7 +486,14 @@ def check_members_public():
     if os.path.exists(txt_path):
         with open(txt_path, encoding="utf-8") as f:
             for line in f:
-                m = re.match(r"(?:\d+\.\s+)?(.*?)\s+—\s+(\S+)\s+—\s+(\S+)", line.strip())
+                line = line.strip()
+                if not line:
+                    continue
+                # Sirf ID code wali line (jaise 1764564212).
+                if line.isdigit():
+                    members.append((line, line, ""))
+                    continue
+                m = re.match(r"(?:\d+\.\s+)?(.*?)\s+—\s+(\S+)\s+—\s+(\S+)", line)
                 if m:
                     members.append((m.group(1), m.group(2), m.group(3)))
         print("MR-ZACKY-group-members.txt se %d members mile." % len(members))
@@ -503,19 +526,99 @@ def check_members_public():
                 else:
                     fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
                 if fb_id:
-                    f.write("%s — %s — https://www.facebook.com/profile.php?id=%s\n" % (name, fb_id, fb_id))
-                    print("[%d/%d] PUBLIC : %s — %s" % (i, len(members), name, fb_id))
+                    f.write("%s\n" % fb_id)
+                    print("[%d/%d] PUBLIC : %s" % (i, len(members), fb_id))
                     public_count += 1
                 else:
-                    print("[%d/%d] skip (ID nahi mili): %s" % (i, len(members), name))
+                    print("[%d/%d] skip (ID nahi mili): %s" % (i, len(members), fid))
                     skipped += 1
             else:
-                print("[%d/%d] skip (%s): %s" % (i, len(members), status, name))
+                print("[%d/%d] skip (%s): %s" % (i, len(members), status, fid))
                 skipped += 1
             time.sleep(2)
     print("")
     print("Public IDs: %d, skip: %d" % (public_count, skipped))
     print("Public wali list save ho gayi: %s" % out_path)
+
+
+def load_friends_file(path):
+    """Friends page ki save ki hui file se doston ke profile links nikalna."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    if path.lower().endswith(".mhtml"):
+        import quopri
+        raw = quopri.decodestring(raw)
+    html = raw.decode("utf-8", errors="ignore")
+    out = []
+    seen = set()
+    skip = {"friends", "watch", "groups", "pages", "marketplace", "gaming",
+            "events", "memories", "saved", "notifications", "settings",
+            "help", "login", "recover", "about", "privacy", "policies",
+            "careers", "lite", "messages", "search", "home", "videos",
+            "photos", "reels", "reel", "stories", "live", "fundraisers",
+            "jobs", "offers", "weather", "ads", "business", "sharer",
+            "dialog", "plugins", "checkpoint", "tr", "ajax"}
+    for url, name in re.findall(
+        r'<a href="(https://www\.facebook\.com/[^"]+)"[^>]*>([^<]+)</a>', html
+    ):
+        if "/groups/" in url:
+            continue
+        fid = id_from_url(url)
+        if not fid or fid in seen:
+            continue
+        # Sirf profile links lo — Facebook ke chrome (Friends, Watch...) nahi.
+        if not fid.isdigit():
+            first = fid.split("/")[0].split("?")[0].lower()
+            if first in skip or "/" in fid or first.endswith(".php"):
+                continue
+        seen.add(fid)
+        out.append((name.strip(), fid, url))
+    return out
+
+
+def friends_ids():
+    print(YELLOW + "=== Public ID ki Friends List se IDs ===" + RESET)
+    friends = []
+    found = None
+    for fname in ("friends.html", "friends.mhtml", "public-friends.html"):
+        p = os.path.join(BASE, fname)
+        if os.path.exists(p):
+            found = fname
+            friends = load_friends_file(p)
+            print("%s se parha gaya." % fname)
+            break
+    if not found:
+        print("friends.html nahi mili — is liye IDs ki list nahi ban saki.")
+        print("")
+        print("Tareeqa:")
+        print("1. Browser me us public ID ki profile kholo, Friends tab par jao.")
+        print("2. Page ko save karo (Chrome: menu > Download / Save page).")
+        print("3. File ka naam friends.html rakho aur is folder me daalo.")
+        print("4. Phir [7] dabao — IDs ki list ban jayegi: MR-ZACKY-friends-ids.txt")
+        print("")
+        print("Note: friends list seedha download nahi hoti — Facebook")
+        print("friends list bina login ke nahi deta, is liye save ki hui")
+        print("file chahiye. Sirf wo dost aayenge jin ki list page par")
+        print("load hui ho.")
+        return
+    import time
+    out_path = os.path.join(BASE, "MR-ZACKY-friends-ids.txt")
+    total = 0
+    with open(out_path, "w", encoding="utf-8") as f:
+        for name, fid, url in friends:
+            # List me sirf ID code — naam nahi.
+            if fid.isdigit():
+                f.write("%s\n" % fid)
+                total += 1
+            else:
+                fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
+                if fb_id:
+                    f.write("%s\n" % fb_id)
+                    total += 1
+                time.sleep(1)
+    print("Total doston ki IDs mili: %d" % total)
+    print("List save ho gayi: %s" % out_path)
+    print("List me sirf ID code hain (naam nahi).")
 
 
 def menu():
@@ -545,11 +648,13 @@ def menu():
             group_members()
         elif choice == "6":
             check_members_public()
+        elif choice == "7":
+            friends_ids()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -575,5 +680,7 @@ if __name__ == "__main__":
         group_members()
     elif len(sys.argv) > 1 and sys.argv[1] == "check-public":
         check_members_public()
+    elif len(sys.argv) > 1 and sys.argv[1] == "friends-ids":
+        friends_ids()
     else:
         menu()
