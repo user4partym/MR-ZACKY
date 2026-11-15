@@ -100,6 +100,8 @@
 # login tum khud karo ge (cookie ya browser se). Sirf APNI ID par use
 # karo. Ghalat password par Facebook account lock bhi kar sakta hai —
 # andaza mat lagao.
+# [12] Password list mein likho: ID do, password likho (dobara confirm)
+# — sirf phone ki file mein save hota hai, GitHub par kabhi nahi jata.
 # ============================================================
 
 import json
@@ -137,7 +139,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.5.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.6.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -154,6 +156,7 @@ def show_menu():
     print(CYAN + "[9] " + RESET + "List mein ID dhoondo (ID/link se email)")
     print(CYAN + "[10] " + RESET + "Post par Like / Comment bhejo")
     print(CYAN + "[11] " + RESET + "Password check karo (kaun sa password laga hai)")
+    print(CYAN + "[12] " + RESET + "Password list mein likho (apni ID ka password save karo)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -1329,6 +1332,80 @@ def _print_check_ok(code, pw):
     print("Session save NAHI ki — login tum khud karo ge (cookie ya browser se).")
 
 
+def add_password_to_list():
+    """[12] Apni ID ka password my_ids.json mein likho.
+    Password sirf is phone ki file mein save hota hai — GitHub par kabhi nahi jata."""
+    print(YELLOW + "=== Password List Mein Likho (apni ID ke liye) ===" + RESET)
+    print("Sirf APNI ID ke liye — password sirf tumhare phone ki file mein save hoga,")
+    print("GitHub par kabhi nahi jayega.")
+    print("")
+    query = input("ID ka link / code / email do: ").strip()
+    if not query:
+        print("Kuch nahi diya.")
+        return
+    p = os.path.join(BASE, "my_ids.json")
+    entries = []
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            entries = data if isinstance(data, list) else data.get("ids", [])
+        except Exception:
+            print("my_ids.json kharab hai — pehle [9] se check kar lo.")
+            return
+    found = None
+    for e in entries:
+        if isinstance(e, dict) and _match_my_id_entry(e, query):
+            found = e
+            break
+    if found:
+        print("ID mili: %s — %s" % (found.get("name") or "-", found.get("email") or "email nahi"))
+        if found.get("password"):
+            print("Is ID ka password pehle se likha hai.")
+            ans = input("Badalna hai? (haan likho, warna khaali Enter): ").strip().lower()
+            if ans not in ("haan", "ha", "yes", "y"):
+                print("Kuch nahi badla.")
+                return
+    else:
+        print("Ye ID list mein nahi hai — nayi entry banata hun.")
+        found = {}
+        identifier, kind = _login_id_from_code(query)
+        if kind == "number":
+            found["fb_id"] = identifier
+            found["profile_link"] = "https://www.facebook.com/profile.php?id=" + identifier
+        elif kind == "username":
+            found["profile_link"] = "https://www.facebook.com/" + identifier
+        elif kind == "email":
+            found["email"] = identifier
+        name = input("Is ID ka naam likho (khaali bhi chhod sakte ho): ").strip()
+        if name:
+            found["name"] = name
+        if not found.get("email"):
+            email = input("Is ID ka email likho: ").strip()
+            if email:
+                found["email"] = email
+        found.setdefault("status", "Active")
+        entries.append(found)
+    import getpass
+    pw = getpass.getpass("Password likho (screen par nahi dikhega): ")
+    if not pw:
+        print("Password khaali hai — kuch save nahi kiya.")
+        return
+    pw2 = getpass.getpass("Password dobara likho (confirm karo): ")
+    if pw2 != pw:
+        print("Dono password match nahi kiye — kuch save nahi kiya. Dobara try karo.")
+        return
+    found["password"] = pw
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+    except Exception as ex:
+        print("Save nahi ho saka: %s" % ex)
+        return
+    print("Password save ho gaya — sirf is phone ki file mein (GitHub par nahi).")
+    print("[9] se check kar ke dekh lo, [11] se password test kar lo.")
+
+
 def check_passwords():
     print(YELLOW + "=== Password Check Karo (apni ID ke liye) ===" + RESET)
     print("Sirf APNI ID ke liye — kisi aur ki ID par try mat karo.")
@@ -1484,11 +1561,13 @@ def menu():
             like_comment()
         elif choice == "11":
             check_passwords()
+        elif choice == "12":
+            add_password_to_list()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1526,5 +1605,7 @@ if __name__ == "__main__":
         like_comment("comment", sys.argv[2] if len(sys.argv) > 2 else None)
     elif len(sys.argv) > 1 and sys.argv[1] == "check":
         check_passwords()
+    elif len(sys.argv) > 1 and sys.argv[1] == "setpw":
+        add_password_to_list()
     else:
         menu()
