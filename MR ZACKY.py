@@ -118,8 +118,9 @@
 # us ki ID ki friends list mein saari IDs us ki hi hain).
 # v1.11.0: [7] ab naam wali JSON list bhi banata hai (public-friends.json);
 # [13] us list aur MR-ZACKY-friends-ids.txt se bhi check kar sakta hai.
-# v1.14.0: [14] mein cookie paste kar ke seedha like — cookie se login
-# + like ek hi flow mein; pasted cookie save nahi hoti, sirf is dafa chalti hai.
+# v1.15.0: [16] Facebook ID banao — Temp Mail email + OTP watch.
+# Signup browser mein hota hai (FB ka form script se nahi bharta);
+# tool email banata hai aur OTP khud nikal kar deta hai.
 # ============================================================
 
 import json
@@ -157,7 +158,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.14.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.15.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -178,6 +179,7 @@ def show_menu():
     print(CYAN + "[13] " + RESET + "Public friends mein se apni IDs check karo")
     print(CYAN + "[14] " + RESET + "Post par likes bhejo (kai IDs se — 10 likes)")
     print(CYAN + "[15] " + RESET + "Post ke likes / video ke views check karo")
+    print(CYAN + "[16] " + RESET + "Facebook ID banao (Temp Mail email + OTP)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -1334,6 +1336,127 @@ def parse_fb_likes(html):
     return None, already
 
 
+TEMP_MAIL_BASE = "https://yandex-temp-mail-server.onrender.com"
+
+USA_FIRST_F = ["Ava", "Mia", "Harper", "Ella", "Grace", "Lily",
+               "Emily", "Sophia", "Emma", "Olivia", "Charlotte", "Amelia"]
+USA_LAST = ["Thompson", "Johnson", "Davis", "Wilson", "Anderson",
+            "Thomas", "Carter", "Bennett", "Koll", "Smith", "Brown", "Taylor"]
+
+
+def temp_mail_alias(provider):
+    """Temp Mail server se naya email lo — (address, tag) ya (None, None).
+    Alias 60 minute ke liye hota hai."""
+    import json as _json
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            TEMP_MAIL_BASE + "/api/alias",
+            data=_json.dumps({"provider": provider}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            d = _json.loads(resp.read().decode("utf-8", errors="ignore"))
+        return d.get("address"), d.get("tag")
+    except Exception:
+        return None, None
+
+
+def temp_mail_otp(tag, provider, wait_sec=180):
+    """Tag ke inbox mein Facebook OTP dhoondo — poll karke (code, subject)
+    do, na mile to (None, None). Server mail se OTP khud nikalta hai."""
+    import json as _json
+    import time as _time
+    import urllib.request
+    import urllib.parse
+    end = _time.time() + wait_sec
+    while _time.time() < end:
+        try:
+            req = urllib.request.Request(
+                TEMP_MAIL_BASE + "/api/sync",
+                data=_json.dumps({"tag": tag, "provider": provider}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                _json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except Exception:
+            pass
+        try:
+            url = TEMP_MAIL_BASE + "/api/messages/" + urllib.parse.quote(tag) + "?provider=" + provider
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                d = _json.loads(resp.read().decode("utf-8", errors="ignore"))
+            for msg in d.get("messages", []):
+                otp = msg.get("otp")
+                frm = (msg.get("from") or "").lower()
+                subj = (msg.get("subject") or "").lower()
+                if otp and ("facebook" in frm or "facebook" in subj or "registration" in frm):
+                    return otp, msg.get("subject")
+        except Exception:
+            pass
+        _time.sleep(15)
+    return None, None
+
+
+def create_facebook_id():
+    """[16] Facebook ID banao — Temp Mail email + OTP watch.
+    Facebook ka signup form script se nahi bharta (JS/Bloks flow),
+    is liye signup tumhare phone ke browser mein hota hai — tool
+    email banata hai aur OTP khud nikal kar deta hai."""
+    print(YELLOW + "=== Facebook ID Banao (Temp Mail + OTP) ===" + RESET)
+    print("Facebook ka signup form script se nahi bharta — is liye")
+    print("signup tumhare phone ke browser mein hoga. Tool email")
+    print("banayega aur OTP khud nikal kar dega.")
+    print("")
+    mode = input("1 = Nayi ID banao | 2 = Sirf OTP dekho (pehle se signup kiya hai): ").strip()
+    if mode == "2":
+        tag = input("Temp Mail tag do (email ke + ke baad wala hissa, jaise 7i1zdh): ").strip().lower()
+        provider = input("Provider (gmail/yandex, default gmail): ").strip().lower() or "gmail"
+        if not tag:
+            print("Tag khali hai.")
+            return
+        print("OTP ka intezar hai (3 minute tak)...")
+        otp, subj = temp_mail_otp(tag, provider)
+        if otp:
+            print("OTP mil gaya: %s (%s)" % (otp, subj or ""))
+        else:
+            print("3 minute mein koi Facebook OTP nahi aaya — Temp Mail site par inbox dekh lo.")
+        return
+    provider = input("Email provider (gmail/yandex, default gmail): ").strip().lower() or "gmail"
+    if provider not in ("gmail", "yandex"):
+        provider = "gmail"
+    print("Temp Mail se email bana raha hun...")
+    address, tag = temp_mail_alias(provider)
+    if not address:
+        print("Temp Mail server se email nahi bana — server so raha ho to dobara try karo.")
+        return
+    import random
+    first = random.choice(USA_FIRST_F)
+    last = random.choice(USA_LAST)
+    name = input("Naam (default %s %s): " % (first, last)).strip() or (first + " " + last)
+    dob = input("Date of birth (default 14/08/2000): ").strip() or "14/08/2000"
+    import getpass
+    pw = getpass.getpass("Password (ye save NAHI hoga): ").strip()
+    if not pw:
+        print("Password khali hai.")
+        return
+    print("")
+    print("=== Signup details (email 60 minute ke liye hai — jaldi karo) ===")
+    print("Email: %s" % address)
+    print("Naam: %s" % name)
+    print("DOB: %s (Female)" % dob)
+    print("Password: %s" % pw)
+    print("")
+    print("Ab apne phone ke browser mein facebook.com kholo aur")
+    print("Create Account dabao — yehi email, naam, DOB aur password")
+    print("use karo. Facebook code bhejega — main OTP ka intezar karta hun.")
+    print("OTP ka intezar hai (3 minute tak)...")
+    otp, subj = temp_mail_otp(tag, provider)
+    if otp:
+        print("OTP mil gaya: %s" % otp)
+        print("Ye code Facebook mein daalo — ID ban jayegi.")
+        print("ID banne ke baad us ka link + email list mein likh lena.")
+    else:
+        print("3 minute mein koi Facebook OTP nahi aaya.")
+        print("Agar code aaya hai to Temp Mail site par dekh lo, ya [16] > 2 se dobara dekho.")
+
 def check_post_counts(link=None):
     """[15] Post ke likes + YouTube video ke views check karo — ASLI ginti.
     Ye kuch bhejta nahi, sirf dikhata hai ke post/video par abhi
@@ -2034,11 +2157,13 @@ def menu():
             send_likes_multi()
         elif choice == "15":
             check_post_counts()
+        elif choice == "16":
+            create_facebook_id()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -2089,5 +2214,7 @@ if __name__ == "__main__":
         send_likes_multi(sys.argv[2] if len(sys.argv) > 2 else None, want)
     elif len(sys.argv) > 1 and sys.argv[1] == "check":
         check_post_counts(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif len(sys.argv) > 1 and sys.argv[1] == "create-id":
+        create_facebook_id()
     else:
         menu()
