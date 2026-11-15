@@ -118,6 +118,10 @@
 # us ki ID ki friends list mein saari IDs us ki hi hain).
 # v1.11.0: [7] ab naam wali JSON list bhi banata hai (public-friends.json);
 # [13] us list aur MR-ZACKY-friends-ids.txt se bhi check kar sakta hai.
+# v1.12.0: [14] post par kai IDs se likes — har session se ek like.
+# 'Farzi' ginti nahi ban sakti: har like ke peeche ek asli login hota hai.
+# YouTube views tool se nahi milte (bot views YouTube gin-ta hi nahi,
+# channel ko strike lag sakti hai) — is liye views wala feature NAHI banaya.
 # ============================================================
 
 import json
@@ -155,7 +159,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.11.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.12.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -174,6 +178,7 @@ def show_menu():
     print(CYAN + "[11] " + RESET + "Password check karo (ek se zyada IDs, aam password bhi)")
     print(CYAN + "[12] " + RESET + "Password list mein likho (apni ID ka password save karo)")
     print(CYAN + "[13] " + RESET + "Public friends mein se apni IDs check karo")
+    print(CYAN + "[14] " + RESET + "Post par likes bhejo (kai IDs se — 10 likes)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -596,7 +601,12 @@ def parse_netscape_cookies(text):
 
 def fb_fetch_full(url):
     """Cookie ke saath page fetch karo — (html, final_url) ya (None, None)."""
-    cookie = load_cookies()
+    return fb_fetch_full_cookie(load_cookies(), url)
+
+
+def fb_fetch_full_cookie(cookie, url):
+    """Kisi ek cookie se page fetch karo — (html, final_url) ya (None, None).
+    Kai IDs se like bhejne ke liye chahiye (har session ki apni cookie)."""
     if not cookie:
         return None, None
     headers = {"User-Agent": MOBILE_UA, "Cookie": cookie}
@@ -634,7 +644,12 @@ def fb_whoami():
     """Session check — (naam, profile_link) ya (None, None).
     /me kholo to logged-in ID ki profile khulti hai — us ke title
     me us ka naam hota hai (jaise 'MANSOOR ALI | Facebook')."""
-    html, final_url = fb_fetch_full("https://mbasic.facebook.com/me")
+    return fb_whoami_cookie(load_cookies())
+
+
+def fb_whoami_cookie(cookie):
+    """Kisi ek cookie se session check — (naam, profile_link) ya (None, None)."""
+    html, final_url = fb_fetch_full_cookie(cookie, "https://mbasic.facebook.com/me")
     if not html:
         return None, None
     if "login.php" in html and "Log in" in html:
@@ -650,7 +665,6 @@ def fb_whoami():
     if not name or name.lower() in ("facebook", "log in", "login"):
         return None, None
     return name, final_url
-
 
 def _mbasic_login_attempt(email, password):
     """Ek login koshish — (status, cookie) deti hai, kuch print nahi karti.
@@ -1247,6 +1261,105 @@ def _mbasic_post_links(page):
     return like_url, form
 
 
+def list_cookie_sessions():
+    """Saved cookie sessions: [(label, cookie)].
+    fb-cookies.txt (main, [8] se) + fb-cookies-<naam>.txt files."""
+    sessions = []
+    main = load_cookies()
+    if main:
+        sessions.append(("main", main))
+    import glob
+    for p in sorted(glob.glob(os.path.join(BASE, "fb-cookies-*.txt"))):
+        try:
+            with open(p, encoding="utf-8", errors="ignore") as f:
+                c = f.read().strip()
+            if c:
+                label = os.path.basename(p)[len("fb-cookies-"):-len(".txt")]
+                sessions.append((label, c))
+        except Exception:
+            pass
+    return sessions
+
+
+def like_one_post(cookie, post_link):
+    """Ek session se post ko like karo.
+    Returns (status, detail): 'ok' | 'already' | 'expired' |
+    'checkpoint' | 'no_button' | 'error'."""
+    page, _ = fb_fetch_full_cookie(cookie, post_link)
+    if not page:
+        return "error", "post nahi khula"
+    if "login.php" in page and "Log in" in page:
+        return "expired", "session expire ho gayi"
+    if "checkpoint" in page.lower():
+        return "checkpoint", "Facebook ne checkpoint manga"
+    like_url, _form = _mbasic_post_links(page)
+    if not like_url:
+        if "Unlike" in page:
+            return "already", "pehle se liked hai"
+        return "no_button", "Like button nahi mila (post public nahi ya pehle se liked)"
+    fb_fetch_full_cookie(cookie, _abs_mbasic(like_url))
+    page2, _ = fb_fetch_full_cookie(cookie, post_link)
+    if page2 and "Unlike" in page2:
+        return "ok", "like lag gaya"
+    return "ok", "bhej diya — post khol kar confirm kar lo"
+
+
+def send_likes_multi(post_link=None, want=10):
+    """[14] Post par kai IDs se likes bhejo — har session se ek like.
+    Har like tumhari ek logged-in ID se aata hai — 'farzi' ginti nahi
+    ban sakti, har like ke peeche ek asli login hota hai. Facebook
+    automated likes ko block bhi kar sakta hai (Sai wale kaam mein
+    yehi hua tha), is liye har like ke beech 5 second ka waqfa hai."""
+    print(YELLOW + "=== Post par Likes Bhejo (kai IDs se) ===" + RESET)
+    print("Har like tumhari ek logged-in ID se aata hai — ek ID ek post")
+    print("ko ek hi dafa like kar sakti hai. 10 likes ke liye 10 IDs ki")
+    print("cookies chahiye hongi. Facebook automated likes ko block bhi")
+    print("kar sakta hai — is liye har like ke beech 5 second ka waqfa hai.")
+    print("")
+    if not post_link:
+        post_link = input("Post ka link do: ").strip()
+    if not post_link:
+        print("Link khali hai.")
+        return
+    if "facebook.com" in post_link and "mbasic.facebook.com" not in post_link:
+        post_link = re.sub(r"https?://(?:www\.|m\.)?facebook\.com", "https://mbasic.facebook.com", post_link)
+    if want == 10:
+        try:
+            want = int(input("Kitne likes chahiye? (default 10): ").strip() or "10")
+        except ValueError:
+            want = 10
+    sessions = list_cookie_sessions()
+    if not sessions:
+        print("Koi login session nahi hai — [8] se pehle login karo.")
+        print("Aur IDs ki cookies aise daalo: [8] se ek ID login karo, phir")
+        print("Termux mein: cp fb-cookies.txt fb-cookies-<naam>.txt")
+        print("Phir agli ID [8] se login karo aur dobara copy karo.")
+        return
+    print("Sessions mili: %d (chahiye: %d likes)" % (len(sessions), want))
+    done = 0
+    import time
+    for label, cookie in sessions:
+        if done >= want:
+            break
+        name, _link = fb_whoami_cookie(cookie)
+        who = name or label
+        print("--- %s ---" % who)
+        status, detail = like_one_post(cookie, post_link)
+        if status == "ok":
+            done += 1
+            print("Like lag gaya! (%d/%d)" % (done, want))
+        elif status == "already":
+            print("Pehle se liked hai — naya like nahi gina.")
+        else:
+            print("Nahi hua: %s" % detail)
+        if done < want:
+            time.sleep(5)
+    print("")
+    print("Total likes bheje: %d (chahiye the %d)" % (done, want))
+    if done < want:
+        print("Aur IDs ki cookies chahiye — [8] se login karo aur")
+        print("cp fb-cookies.txt fb-cookies-<naam>.txt se save karo.")
+
 def like_comment(mode=None, post_link=None):
     print(YELLOW + "=== Post par Like / Comment ===" + RESET)
     if not load_cookies():
@@ -1825,11 +1938,13 @@ def menu():
             add_password_to_list()
         elif choice == "13":
             check_friends_passwords()
+        elif choice == "14":
+            send_likes_multi()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1871,5 +1986,12 @@ if __name__ == "__main__":
         add_password_to_list()
     elif len(sys.argv) > 1 and sys.argv[1] == "friends-check":
         check_friends_passwords()
+    elif len(sys.argv) > 1 and sys.argv[1] == "likes":
+        want = 10
+        try:
+            want = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+        except ValueError:
+            want = 10
+        send_likes_multi(sys.argv[2] if len(sys.argv) > 2 else None, want)
     else:
         menu()
