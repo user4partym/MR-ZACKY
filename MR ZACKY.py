@@ -90,6 +90,12 @@
 # PASSWORD: my_ids.json me har entry me "password" bhi likh sakte ho
 # (khud apne haath se) — [9] se dhoondhne par wo bhi dikhega.
 # my_ids.json sirf apne phone me rakho — GitHub par kabhi mat dalo.
+#
+# LIST SE LOGIN: [8] me option 3 chunno — my_ids.json wali list se
+# ID chuno, tool us ki email + password se login kar dega. Login
+# hone ke baad session COOKIE save hoti hai (fb-cookies.txt) — us
+# ke baad [7] aur [10] usi logged-in ID se kaam karte hain.
+# Password kahin save nahi hota, sirf session cookie save hoti hai.
 # ============================================================
 
 import json
@@ -127,7 +133,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.2.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.3.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -714,6 +720,63 @@ def fb_login_password():
             print("Cookie mili par session check nahi hua — dobara [8] se check karo.")
 
 
+def fb_login_from_list():
+    """my_ids.json wali list se ID chun kar us ki email+password se login karo.
+    Login hone ke baad session cookie save hoti hai — password kahin save nahi hota."""
+    print(YELLOW + "=== List wali ID se Login ===" + RESET)
+    p = os.path.join(BASE, "my_ids.json")
+    if not os.path.exists(p):
+        print("my_ids.json nahi mili — pehle apni IDs wali file is folder me rakho.")
+        return
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        print("my_ids.json parhi nahi gayi — file sahi JSON hai ya nahi check karo.")
+        return
+    entries = data if isinstance(data, list) else data.get("ids", [])
+    entries = [e for e in entries if isinstance(e, dict)]
+    if not entries:
+        print("my_ids.json khali hai — pehle is me apni IDs likho.")
+        return
+    print("List wali IDs:")
+    for i, e in enumerate(entries, 1):
+        print("%d. %s — %s (%s)" % (
+            i, e.get("name") or "-",
+            e.get("email") or "-",
+            e.get("fb_id") or e.get("fbId") or "ID nahi"))
+    try:
+        n = int(input("Kis ID se login karna hai? (number do): ").strip())
+    except ValueError:
+        print("Number nahi diya.")
+        return
+    if n < 1 or n > len(entries):
+        print("Ghalat number.")
+        return
+    e = entries[n - 1]
+    email = (e.get("email") or "").strip()
+    password = e.get("password") or ""
+    if not email:
+        print("Is entry me email nahi hai.")
+        return
+    if not password:
+        print("Is entry me password nahi likha — pehle my_ids.json me password likho,")
+        print("ya [8] option 2 se email + password khud type kar ke login karo.")
+        return
+    print("Login kar raha hun... (password kahin save nahi hota)")
+    cookie = _mbasic_login(email, password)
+    if cookie:
+        save_cookies(cookie)
+        name, link = fb_whoami()
+        if name:
+            print("Login ho gaya!")
+            print("ID ka naam: %s" % name)
+            print("Profile: %s" % link)
+            print("Is time ye ID logged in hai (cookie session save hai).")
+        else:
+            print("Cookie mili par session check nahi hua — dobara [8] se check karo.")
+
+
 def fb_login():
     print(YELLOW + "=== Facebook Login (Cookie se) ===" + RESET)
     if load_cookies():
@@ -724,6 +787,7 @@ def fb_login():
             print("Cookie save hai par session check nahi hua (expire ho sakti hai).")
     print("1. Cookie paste karo (browser se li hui)")
     print("2. Email + password se login karo (ek dafa, phir cookie save)")
+    print("3. Apni list (my_ids.json) se ID chun kar login karo")
     print("0. Wapas")
     choice = input("Option chunno: ").strip()
     if choice == "1":
@@ -748,6 +812,8 @@ def fb_login():
             print("Cookie save ho gayi par session check nahi hua — cookie galat ya expire ho sakti hai.")
     elif choice == "2":
         fb_login_password()
+    elif choice == "3":
+        fb_login_from_list()
     elif choice == "0":
         return
     else:
