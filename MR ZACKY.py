@@ -118,8 +118,8 @@
 # us ki ID ki friends list mein saari IDs us ki hi hain).
 # v1.11.0: [7] ab naam wali JSON list bhi banata hai (public-friends.json);
 # [13] us list aur MR-ZACKY-friends-ids.txt se bhi check kar sakta hai.
-# v1.13.0: [15] post ke likes + YouTube video ke views check karo
-# (asli ginti dikhata hai — kuch bhejta nahi).
+# v1.14.0: [14] mein cookie paste kar ke seedha like — cookie se login
+# + like ek hi flow mein; pasted cookie save nahi hoti, sirf is dafa chalti hai.
 # ============================================================
 
 import json
@@ -157,7 +157,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.13.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.14.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -1413,7 +1413,16 @@ def send_likes_multi(post_link=None, want=10):
             want = 10
     sessions = list_cookie_sessions()
     if not sessions:
-        print("Koi login session nahi hai — [8] se pehle login karo.")
+        print("Koi login session nahi hai — [8] se pehle login karo, ya neeche cookie paste karo.")
+    extra = input("Koi ID ki cookie paste karni hai? (paste karo, ya Enter dabao): ").strip()
+    if extra:
+        name, _link = fb_whoami_cookie(extra)
+        if name:
+            sessions.append(("pasted-" + name, extra))
+            print("Cookie se login ho gaya: %s" % name)
+        else:
+            print("Ye cookie kaam nahi kar rahi (expire ya ghalat) — saved sessions se kaam chalega.")
+    if not sessions:
         print("Aur IDs ki cookies aise daalo: [8] se ek ID login karo, phir")
         print("Termux mein: cp fb-cookies.txt fb-cookies-<naam>.txt")
         print("Phir agli ID [8] se login karo aur dobara copy karo.")
