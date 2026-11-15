@@ -81,6 +81,15 @@
 # NOTE: Facebook ID se number/Gmail nahi nikalta — ye option sirf
 # tumhari apni list mein dhoondhta hai. List mein na ho to
 # facebook.com/login/identify par masked email/number dekho.
+#
+# LIKE / COMMENT: Menu se [10] chunno — post ka link do, phir Like
+# ya Comment bhejo. Login chahiye ([8] se) — bina login ke nahi hota.
+# Sirf ek dafa me ek action. Facebook automated like/comment ko
+# block kar sakta hai — 'temporarily blocked' aaye to ruk jao.
+#
+# PASSWORD: my_ids.json me har entry me "password" bhi likh sakte ho
+# (khud apne haath se) — [9] se dhoondhne par wo bhi dikhega.
+# my_ids.json sirf apne phone me rakho — GitHub par kabhi mat dalo.
 # ============================================================
 
 import json
@@ -118,7 +127,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.1.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.2.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -133,6 +142,7 @@ def show_menu():
     print(CYAN + "[7] " + RESET + "Public ID ki Friends List se IDs Nikalo")
     print(CYAN + "[8] " + RESET + "Facebook Login (Cookie se)")
     print(CYAN + "[9] " + RESET + "List mein ID dhoondo (ID/link se email)")
+    print(CYAN + "[10] " + RESET + "Post par Like / Comment bhejo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -1059,6 +1069,8 @@ def search_lists(query=None):
             print("FB ID  : %s" % (e.get("fb_id") or e.get("fbId") or "-"))
             print("Link   : %s" % (e.get("profile_link") or e.get("profileLink") or "-"))
             print("Status : %s" % (e.get("status") or e.get("activation") or "-"))
+            if e.get("password"):
+                print("Password: %s" % e.get("password"))
             print("")
     # 2) friends.json / friends.html — naam ya ID se dost
     fres = _search_friends(query)
@@ -1086,6 +1098,152 @@ def search_lists(query=None):
         print("Is ka matlab: ye ID tumhari saved lists mein nahi hai.")
         print("Number/Gmail jan'ne ke liye facebook.com/login/identify")
         print("par ID/link dalo — Facebook masked email/number dikhayega.")
+
+
+def fb_post(url, fields):
+    """Cookie ke saath POST karo — (html, final_url) ya (None, None)."""
+    import urllib.error
+    cookie = load_cookies()
+    if not cookie:
+        return None, None
+    data = urllib.parse.urlencode(fields).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=data, headers={
+            "User-Agent": MOBILE_UA,
+            "Cookie": cookie,
+            "Content-Type": "application/x-www-form-urlencoded",
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8", errors="ignore"), resp.geturl()
+    except Exception:
+        pass
+    import shutil
+    import subprocess
+    if shutil.which("curl"):
+        try:
+            args = ["curl", "-sL", "-A", MOBILE_UA, "-H", "Cookie: " + cookie]
+            for k, v in fields.items():
+                args += ["--data-urlencode", "%s=%s" % (k, v)]
+            args += ["-w", "\n%{url_effective}", url]
+            out = subprocess.run(args, capture_output=True, timeout=60)
+            text = out.stdout.decode("utf-8", errors="ignore")
+            if "\n" in text:
+                body, final = text.rsplit("\n", 1)
+                return body, final.strip()
+            return text, url
+        except Exception:
+            pass
+    return None, None
+
+
+def _abs_mbasic(url):
+    """Relative link ko mbasic ka poora link banao."""
+    if not url:
+        return url
+    if url.startswith("http"):
+        return url
+    if url.startswith("/"):
+        return "https://mbasic.facebook.com" + url
+    return "https://mbasic.facebook.com/" + url
+
+
+def _mbasic_post_links(page):
+    """Post page se Like link aur comment form nikalo."""
+    import html as _html
+    like_url = None
+    m = re.search(r'<a href="([^"]*like\.php[^"]*)"[^>]*>\s*Like\s*</a>', page or "")
+    if m:
+        like_url = _html.unescape(m.group(1))
+    form = None
+    m = re.search(r'<form[^>]*action="([^"]*comment\.php[^"]*)"[^>]*>(.*?)</form>', page or "", re.S)
+    if m:
+        action = _html.unescape(m.group(1))
+        body = m.group(2)
+        fields = {}
+        for name, value in re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', body):
+            fields[name] = _html.unescape(value)
+        for name, value in re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', body):
+            fields.setdefault(name, _html.unescape(value))
+        cfield = "comment_text"
+        cm = re.search(r'<(?:input|textarea)[^>]*name="([^"]*comment[^"]*)"', body)
+        if cm:
+            cfield = cm.group(1)
+        form = (action, fields, cfield)
+    return like_url, form
+
+
+def like_comment(mode=None, post_link=None):
+    print(YELLOW + "=== Post par Like / Comment ===" + RESET)
+    if not load_cookies():
+        print("Pehle [8] se Facebook login karo — bina login ke like/comment nahi hota.")
+        return
+    who_name, who_link = fb_whoami()
+    if not who_name:
+        print("Login session check nahi hua — [8] se dobara login karo.")
+        return
+    print("Logged in: %s" % who_name)
+    print("")
+    print("WARNING: Facebook automated like/comment ko block kar sakta hai.")
+    print("Ek dafa me sirf ek action karo — tezi se karo ge to is ID par")
+    print("restriction lag sakti hai (Sai wale kaam mein yehi hua tha).")
+    print("")
+    if mode not in ("like", "comment"):
+        print("1. Like bhejo")
+        print("2. Comment likho")
+        print("0. Wapas")
+        c = input("Option chunno: ").strip()
+        if c == "1":
+            mode = "like"
+        elif c == "2":
+            mode = "comment"
+        else:
+            return
+    if not post_link:
+        post_link = input("Post ka link do: ").strip()
+    if not post_link:
+        print("Link khali hai.")
+        return
+    if "facebook.com" in post_link and "mbasic.facebook.com" not in post_link:
+        post_link = re.sub(r"https?://(?:www\.|m\.)?facebook\.com", "https://mbasic.facebook.com", post_link)
+    text = ""
+    if mode == "comment":
+        text = input("Comment kya likhna hai? ").strip()
+        if not text:
+            print("Comment khali hai.")
+            return
+    print("Post khol raha hun...")
+    page = fb_fetch(post_link)
+    if not page or ("login.php" in page and "Log in" in page):
+        print("Post nahi khula — session expire ho sakti hai, [8] se dobara login karo.")
+        return
+    if "checkpoint" in page.lower():
+        print("Facebook ne CHECKPOINT manga hai — browser me khud karo, phir dobara try karo.")
+        return
+    like_url, form = _mbasic_post_links(page)
+    if mode == "like":
+        if not like_url:
+            print("Is post par Like ka button nahi mila — shayad pehle se liked hai, ya post public nahi.")
+            return
+        print("Like bhej raha hun...")
+        fb_fetch(_abs_mbasic(like_url))
+        page2 = fb_fetch(post_link)
+        if page2 and "Unlike" in page2:
+            print("Like lag gaya!")
+        else:
+            print("Like bhej diya — confirm karne ke liye post khol kar dekho (Unlike likha ho to lag gaya).")
+    else:
+        if not form:
+            print("Is post par comment form nahi mila — shayad comments band hain.")
+            return
+        action, fields, cfield = form
+        fields[cfield] = text
+        print("Comment bhej raha hun...")
+        fb_post(_abs_mbasic(action), fields)
+        page2 = fb_fetch(post_link)
+        if page2 and text[:30] in page2:
+            print("Comment lag gaya!")
+        else:
+            print("Comment bhej diya — confirm karne ke liye post khol kar dekho.")
 
 
 def menu():
@@ -1126,11 +1284,13 @@ def menu():
             fb_login()
         elif choice == "9":
             search_lists()
+        elif choice == "10":
+            like_comment()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1162,5 +1322,9 @@ if __name__ == "__main__":
         fb_login()
     elif len(sys.argv) > 1 and sys.argv[1] == "search":
         search_lists(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif len(sys.argv) > 1 and sys.argv[1] == "like":
+        like_comment("like", sys.argv[2] if len(sys.argv) > 2 else None)
+    elif len(sys.argv) > 1 and sys.argv[1] == "comment":
+        like_comment("comment", sys.argv[2] if len(sys.argv) > 2 else None)
     else:
         menu()
