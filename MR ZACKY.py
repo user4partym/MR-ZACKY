@@ -91,11 +91,12 @@
 # (khud apne haath se) — [9] se dhoondhne par wo bhi dikhega.
 # my_ids.json sirf apne phone me rakho — GitHub par kabhi mat dalo.
 #
-# LIST SE LOGIN: [8] me option 3 chunno — my_ids.json wali list se
-# ID chuno, tool us ki email + password se login kar dega. Login
-# hone ke baad session COOKIE save hoti hai (fb-cookies.txt) — us
-# ke baad [7] aur [10] usi logged-in ID se kaam karte hain.
-# Password kahin save nahi hota, sirf session cookie save hoti hai.
+# PASSWORD CHECK: Menu se [11] chunno — ID ka link do, phir 3-4
+# password jo tumhe yaad hain (zyada se zyada 5). Tool har password
+# ko ek dafa try kar ke batayega kaun sa is ID par laga hua hai.
+# Sirf APNI ID par use karo. Milne par session save NAHI hoti —
+# login tum khud karo ge (cookie ya browser se). Ghalat password
+# par Facebook account lock bhi kar sakta hai — andaza mat lagao.
 # ============================================================
 
 import json
@@ -133,7 +134,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.3.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.4.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -149,6 +150,7 @@ def show_menu():
     print(CYAN + "[8] " + RESET + "Facebook Login (Cookie se)")
     print(CYAN + "[9] " + RESET + "List mein ID dhoondo (ID/link se email)")
     print(CYAN + "[10] " + RESET + "Post par Like / Comment bhejo")
+    print(CYAN + "[11] " + RESET + "Password check karo (kaun sa password laga hai)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -626,9 +628,9 @@ def fb_whoami():
     return name, final_url
 
 
-def _mbasic_login(email, password):
-    """mbasic se login — form parho, POST karo, cookies nikalo.
-    Checkpoint/2FA aaye to ruk jao (None) — us ko browser se karo."""
+def _mbasic_login_attempt(email, password):
+    """Ek login koshish — (status, cookie) deti hai, kuch print nahi karti.
+    status: 'ok' | 'wrong' | 'checkpoint' | 'locked' | 'error'"""
     import http.cookiejar
     import urllib.error
     import urllib.parse
@@ -639,9 +641,8 @@ def _mbasic_login(email, password):
         req = urllib.request.Request(login_url, headers={"User-Agent": MOBILE_UA})
         with opener.open(req, timeout=30) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-    except Exception as e:
-        print("Login page nahi khula: %s" % e)
-        return None
+    except Exception:
+        return "error", None
     m = re.search(r'<form[^>]*action="([^"]+)"[^>]*>', html)
     action = m.group(1) if m else "/login/device-based/regular/login/?refsrc=deprecated&lwv=100"
     if action.startswith("/"):
@@ -678,25 +679,43 @@ def _mbasic_login(email, password):
             resp_html = e.read().decode("utf-8", errors="ignore")
         except Exception:
             resp_html = ""
-    except Exception as e:
-        print("Login request fail: %s" % e)
-        return None
+    except Exception:
+        return "error", None
     low = resp_html.lower()
     if "checkpoint" in low or "two-factor" in low or "login approval" in low or "confirm your identity" in low:
-        print("Facebook ne CHECKPOINT manga hai (code/selfie).")
-        print("Script yahin ruk raha hai — checkpoint browser me khud karo,")
-        print("phir [8] option 1 se cookie paste kar do.")
-        return None
+        return "checkpoint", None
+    if "temporarily" in low and ("lock" in low or "blocked" in low):
+        return "locked", None
     pairs = []
     for c in jar:
         if "facebook" in c.domain:
             pairs.append("%s=%s" % (c.name, c.value))
     cookie = "; ".join(pairs)
     if "c_user=" not in cookie:
-        print("Login nahi hua — email/password galat ho sakta hai, ya Facebook ne rok diya.")
-        print("Browser se login kar ke [8] option 1 se cookie paste karo.")
+        return "wrong", None
+    return "ok", cookie
+
+
+def _mbasic_login(email, password):
+    """mbasic se login — form parho, POST karo, cookies nikalo.
+    Checkpoint/2FA aaye to ruk jao (None) — us ko browser se karo."""
+    status, cookie = _mbasic_login_attempt(email, password)
+    if status == "ok":
+        return cookie
+    if status == "checkpoint":
+        print("Facebook ne CHECKPOINT manga hai (code/selfie).")
+        print("Script yahin ruk raha hai — checkpoint browser me khud karo,")
+        print("phir [8] option 1 se cookie paste kar do.")
         return None
-    return cookie
+    if status == "locked":
+        print("Facebook ne account ko temporarily lock kar diya — kuch der ruk kar dobara try karo.")
+        return None
+    if status == "error":
+        print("Login request fail — internet check kar ke dobara try karo.")
+        return None
+    print("Login nahi hua — email/password galat ho sakta hai, ya Facebook ne rok diya.")
+    print("Browser se login kar ke [8] option 1 se cookie paste karo.")
+    return None
 
 
 def fb_login_password():
@@ -720,63 +739,6 @@ def fb_login_password():
             print("Cookie mili par session check nahi hua — dobara [8] se check karo.")
 
 
-def fb_login_from_list():
-    """my_ids.json wali list se ID chun kar us ki email+password se login karo.
-    Login hone ke baad session cookie save hoti hai — password kahin save nahi hota."""
-    print(YELLOW + "=== List wali ID se Login ===" + RESET)
-    p = os.path.join(BASE, "my_ids.json")
-    if not os.path.exists(p):
-        print("my_ids.json nahi mili — pehle apni IDs wali file is folder me rakho.")
-        return
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        print("my_ids.json parhi nahi gayi — file sahi JSON hai ya nahi check karo.")
-        return
-    entries = data if isinstance(data, list) else data.get("ids", [])
-    entries = [e for e in entries if isinstance(e, dict)]
-    if not entries:
-        print("my_ids.json khali hai — pehle is me apni IDs likho.")
-        return
-    print("List wali IDs:")
-    for i, e in enumerate(entries, 1):
-        print("%d. %s — %s (%s)" % (
-            i, e.get("name") or "-",
-            e.get("email") or "-",
-            e.get("fb_id") or e.get("fbId") or "ID nahi"))
-    try:
-        n = int(input("Kis ID se login karna hai? (number do): ").strip())
-    except ValueError:
-        print("Number nahi diya.")
-        return
-    if n < 1 or n > len(entries):
-        print("Ghalat number.")
-        return
-    e = entries[n - 1]
-    email = (e.get("email") or "").strip()
-    password = e.get("password") or ""
-    if not email:
-        print("Is entry me email nahi hai.")
-        return
-    if not password:
-        print("Is entry me password nahi likha — pehle my_ids.json me password likho,")
-        print("ya [8] option 2 se email + password khud type kar ke login karo.")
-        return
-    print("Login kar raha hun... (password kahin save nahi hota)")
-    cookie = _mbasic_login(email, password)
-    if cookie:
-        save_cookies(cookie)
-        name, link = fb_whoami()
-        if name:
-            print("Login ho gaya!")
-            print("ID ka naam: %s" % name)
-            print("Profile: %s" % link)
-            print("Is time ye ID logged in hai (cookie session save hai).")
-        else:
-            print("Cookie mili par session check nahi hua — dobara [8] se check karo.")
-
-
 def fb_login():
     print(YELLOW + "=== Facebook Login (Cookie se) ===" + RESET)
     if load_cookies():
@@ -787,7 +749,6 @@ def fb_login():
             print("Cookie save hai par session check nahi hua (expire ho sakti hai).")
     print("1. Cookie paste karo (browser se li hui)")
     print("2. Email + password se login karo (ek dafa, phir cookie save)")
-    print("3. Apni list (my_ids.json) se ID chun kar login karo")
     print("0. Wapas")
     choice = input("Option chunno: ").strip()
     if choice == "1":
@@ -812,8 +773,6 @@ def fb_login():
             print("Cookie save ho gayi par session check nahi hua — cookie galat ya expire ho sakti hai.")
     elif choice == "2":
         fb_login_password()
-    elif choice == "3":
-        fb_login_from_list()
     elif choice == "0":
         return
     else:
@@ -1312,6 +1271,82 @@ def like_comment(mode=None, post_link=None):
             print("Comment bhej diya — confirm karne ke liye post khol kar dekho.")
 
 
+def check_passwords():
+    print(YELLOW + "=== Password Check Karo (apni ID ke liye) ===" + RESET)
+    print("Sirf APNI ID ke liye — kisi aur ki ID par try mat karo.")
+    print("Tum ID ka link do ge, aur 3-4 password jo tumhe yaad hain,")
+    print("tool har password ko ek dafa try kar ke batayega kaun sa laga hua hai.")
+    print("Ghalat password par Facebook account lock bhi kar sakta hai —")
+    print("is liye sirf wohi password do jo tumhe yaad hain, andaza mat lagao.")
+    print("")
+    query = input("ID ka link / ID / email do: ").strip()
+    if not query:
+        print("Kuch nahi diya.")
+        return
+    email = None
+    found = None
+    p = os.path.join(BASE, "my_ids.json")
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            entries = data if isinstance(data, list) else data.get("ids", [])
+            for e in entries:
+                if isinstance(e, dict) and _match_my_id_entry(e, query):
+                    found = e
+                    break
+        except Exception:
+            pass
+    if found:
+        email = (found.get("email") or "").strip()
+        print("ID mili: %s — %s" % (found.get("name") or "-", email or "email nahi"))
+    if not email:
+        email = input("Is ID ka email likho: ").strip()
+    if not email:
+        print("Email ke baghair check nahi ho sakta.")
+        return
+    print("")
+    print("Ab wo 3-4 password do jo tumhe yaad hain (ek line me ek password,")
+    print("khaali line de kar khatam karo — zyada se zyada 5).")
+    passwords = []
+    for i in range(1, 6):
+        try:
+            import getpass
+            pw = getpass.getpass("Password %d: " % i)
+        except Exception:
+            pw = input("Password %d: " % i)
+        if not pw:
+            break
+        passwords.append(pw)
+    if not passwords:
+        print("Koi password nahi diya.")
+        return
+    print("")
+    for i, pw in enumerate(passwords, 1):
+        print("Password %d try kar raha hun..." % i)
+        status, _cookie = _mbasic_login_attempt(email, pw)
+        if status == "ok":
+            print("")
+            print("MIL GAYA! Password %d is ID par laga hua hai." % i)
+            print("Password: %s" % pw)
+            print("Session save NAHI ki — login tum khud karo ge (cookie ya browser se).")
+            return
+        if status == "checkpoint":
+            print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
+            print("Baaqi password try nahi kiye.")
+            return
+        if status == "locked":
+            print("Facebook ne account ko temporarily lock kar diya — ab ruk jao, kuch der baad try karo.")
+            print("Baaqi password try nahi kiye.")
+            return
+        if status == "error":
+            print("Network error — internet check kar ke dobara try karo.")
+            return
+        print("Password %d ghalat hai." % i)
+    print("")
+    print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
+
+
 def menu():
     show_banner()
     # Login ho to upar hi dikha do ke is time kaun si ID logged in hai.
@@ -1352,11 +1387,13 @@ def menu():
             search_lists()
         elif choice == "10":
             like_comment()
+        elif choice == "11":
+            check_passwords()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1392,5 +1429,7 @@ if __name__ == "__main__":
         like_comment("like", sys.argv[2] if len(sys.argv) > 2 else None)
     elif len(sys.argv) > 1 and sys.argv[1] == "comment":
         like_comment("comment", sys.argv[2] if len(sys.argv) > 2 else None)
+    elif len(sys.argv) > 1 and sys.argv[1] == "check":
+        check_passwords()
     else:
         menu()
