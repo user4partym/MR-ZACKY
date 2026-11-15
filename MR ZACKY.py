@@ -113,6 +113,9 @@
 # v1.8.0: [13] friends se apni IDs + OK/CP label.
 # v1.9.0: [13] me session check + naam se pehchan — koi bhi dost number
 # se chun kar check ho sakta hai, list mein ho ya na ho.
+# v1.10.0: [13] me 'sab' — saari friends list ek saath check hoti hai.
+# 'sab' sirf tab jab saari list user ki apni IDs hon (user ka kehna:
+# us ki ID ki friends list mein saari IDs us ki hi hain).
 # ============================================================
 
 import json
@@ -150,7 +153,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.9.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.10.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -1629,15 +1632,16 @@ def check_passwords():
 
 def check_friends_passwords():
     """[13] Apni ID ke public friends mein se apni IDs dhoondo + password check karo.
-    List mein saare dost naam ke saath dikhte hain — tum number likh kar
-    koi bhi dost chun sakte ho, list mein ho ya na ho. Sirf wohi IDs check
-    hoti hain jo tum chunoge — baaki doston par password kabhi try nahi hota."""
+    List mein saare dost naam ke saath dikhte hain — number likh kar chun lo,
+    ya 'sab' likho (saari list check hogi). 'sab' sirf tab likho jab saari
+    list tumhari apni IDs hon. Sirf wohi IDs check hoti hain jo tum chunoge
+    ya 'sab' likh kar confirm karo ge — bina chune kisi dost par password
+    kabhi try nahi hota."""
     print(YELLOW + "=== Public Friends Mein Se Apni IDs Check Karo ===" + RESET)
     print("Apni ID ka code/link do — us ID ki PUBLIC friends list khulegi.")
-    print("List mein saare dost naam ke saath dikhenge — number likh kar")
-    print("koi bhi dost chun lo, list mein ho ya na ho. Sirf wohi IDs")
-    print("check hongi jo TUM chunoge. Baaki doston par password kabhi")
-    print("try nahi hoga.")
+    print("List mein saare dost naam ke saath dikhenge. Phir ya to number")
+    print("likh kar chun lo, ya 'sab' likho — 'sab' se saari list check")
+    print("hogi. 'sab' sirf tab likho jab saari list tumhari apni IDs ho.")
     print("")
     who = input("Apni ID ka code / link / username do: ").strip()
     if not who:
@@ -1719,9 +1723,11 @@ def check_friends_passwords():
             mark = "  <-- NAAM MILTA HAI (shayad tumhari ID — number se chun lo)"
         print("%d. %s — %s%s" % (i, name, fid, mark))
     print("")
-    pick = input("Kaun si check karun? Number likho, comma se alag karo (list wali ho ya na ho — jo tumhari lagti hain sab ke number likh do; khaali Enter = sirf list wali): ").strip()
+    pick = input("Kaun si check karun? Number likho, comma se alag karo — ya 'sab' likho (saari list check hogi). 'sab' sirf tab likho jab saari list tumhari apni IDs hon; khaali Enter = sirf list wali: ").strip()
     chosen = []
-    if pick:
+    if pick.lower() in ("sab", "all"):
+        chosen = list(friends)
+    elif pick:
         for part in pick.split(","):
             part = part.strip()
             if part.isdigit():
