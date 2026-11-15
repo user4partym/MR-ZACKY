@@ -111,6 +111,8 @@
 # Baaki doston par password kabhi try nahi hota. Nateeja: milne par OK,
 # checkpoint par CP likha aata hai.
 # v1.8.0: [13] friends se apni IDs + OK/CP label.
+# v1.9.0: [13] me session check + naam se pehchan — koi bhi dost number
+# se chun kar check ho sakta hai, list mein ho ya na ho.
 # ============================================================
 
 import json
@@ -148,7 +150,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.8.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.9.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -1627,24 +1629,40 @@ def check_passwords():
 
 def check_friends_passwords():
     """[13] Apni ID ke public friends mein se apni IDs dhoondo + password check karo.
-    Sirf wohi IDs check hoti hain jo tum chunoge (ya jo tumhari apni list
-    my_ids.json mein hain) — baaki doston par password kabhi try nahi hota."""
+    List mein saare dost naam ke saath dikhte hain — tum number likh kar
+    koi bhi dost chun sakte ho, list mein ho ya na ho. Sirf wohi IDs check
+    hoti hain jo tum chunoge — baaki doston par password kabhi try nahi hota."""
     print(YELLOW + "=== Public Friends Mein Se Apni IDs Check Karo ===" + RESET)
     print("Apni ID ka code/link do — us ID ki PUBLIC friends list khulegi.")
-    print("Us list mein se sirf wohi IDs check hongi jo TUM chunoge,")
-    print("ya jo tumhari apni list (my_ids.json) mein hain.")
-    print("Baaki doston par password kabhi try nahi hoga.")
+    print("List mein saare dost naam ke saath dikhenge — number likh kar")
+    print("koi bhi dost chun lo, list mein ho ya na ho. Sirf wohi IDs")
+    print("check hongi jo TUM chunoge. Baaki doston par password kabhi")
+    print("try nahi hoga.")
     print("")
     who = input("Apni ID ka code / link / username do: ").strip()
     if not who:
         print("Kuch nahi diya.")
         return
     friends = []
+    session_ok = False
     if load_cookies():
+        name, link = fb_whoami()
+        if name:
+            print("Login hai: %s" % name)
+            session_ok = True
+        else:
+            print("Cookie save hai par session nahi chal rahi (expire ho sakti hai).")
+            print("[8] se dobara login karo, phir [13] dabao.")
+            print("Ya friends.html file wala tareeqa use karo (neeche).")
+    if session_ok:
         print("Login session se friends list khol raha hun...")
         friends = _fetch_friends_online(who)
         if not friends:
-            print("Seedha fetch se koi dost nahi mila — file wala tareeqa try karta hun.")
+            print("Page khula par dost nahi mile — ho sakta hai:")
+            print("- us ID ki friends list public nahi hai (sirf us ke dost dekh sakte hain), ya")
+            print("- username/link ghalat hai, ya")
+            print("- us ID ke koi public dost nahi hain.")
+            print("File wala tareeqa try karta hun.")
     if not friends:
         found_file = None
         for fname in ("friends.html", "friends.mhtml", "public-friends.html"):
@@ -1668,6 +1686,7 @@ def check_friends_passwords():
         print("Friends list khaali hai.")
         return
     my_ids = set()
+    my_names = set()
     p = os.path.join(BASE, "my_ids.json")
     if os.path.exists(p):
         try:
@@ -1682,6 +1701,10 @@ def check_friends_passwords():
                     fid = id_from_url(link) if link else None
                     if fid:
                         my_ids.add(str(fid))
+                    nm = (e.get("name") or "").strip().lower()
+                    if nm:
+                        my_names.add(nm)
+                        my_names.add(nm.split()[0])
         except Exception:
             pass
     print("")
@@ -1692,9 +1715,11 @@ def check_friends_passwords():
         if str(fid) in my_ids:
             mark = "  <-- LIST MEIN HAI (tumhari ID)"
             in_list_idx.append(i)
+        elif (name or "").strip().lower() in my_names:
+            mark = "  <-- NAAM MILTA HAI (shayad tumhari ID — number se chun lo)"
         print("%d. %s — %s%s" % (i, name, fid, mark))
     print("")
-    pick = input("Kaun si check karun? Number likho, comma se alag karo (khaali Enter = sirf list wali): ").strip()
+    pick = input("Kaun si check karun? Number likho, comma se alag karo (list wali ho ya na ho — jo tumhari lagti hain sab ke number likh do; khaali Enter = sirf list wali): ").strip()
     chosen = []
     if pick:
         for part in pick.split(","):
