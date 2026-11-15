@@ -91,17 +91,21 @@
 # (khud apne haath se) — [9] se dhoondhne par wo bhi dikhega.
 # my_ids.json sirf apne phone me rakho — GitHub par kabhi mat dalo.
 #
-# PASSWORD CHECK: Menu se [11] chunno — ID ka link/code do, phir 3-4
-# password jo tumhe yaad hain (zyada se zyada 5). Tool har password
-# ko ek dafa try kar ke batayega kaun sa is ID par laga hua hai.
+# PASSWORD CHECK: Menu se [11] chunno — ek ya zyada IDs ke link/code do
+# (comma se alag karo, koi limit nahi), phir 3-4 password jo tumhe yaad
+# hain (zyada se zyada 5). Tool har ID par tumhare password ke saath
+# tumhare bataye hue aam password bhi khud try karta hai: first name +
+# 123 / 1234 / 1235 / 786, 12345678, 123456789, Pakistan, 786786.
 # Email list mein na ho to link/code se username ya ID number se bhi
 # try karta hai — number se login na hua to email poochega. Milne par
-# 'OK — <code>' likh kar password batata hai. Session save NAHI hoti —
+# 'OK — <code>' likh kar password batata hai, aur aakhir me saari IDs
+# ka nateeja ek saath likh deta hai. Session save NAHI hoti —
 # login tum khud karo ge (cookie ya browser se). Sirf APNI ID par use
 # karo. Ghalat password par Facebook account lock bhi kar sakta hai —
-# andaza mat lagao.
+# andaza mat lagao. Checkpoint/lock aate hi tool khud ruk jata hai.
 # [12] Password list mein likho: ID do, password likho (dobara confirm)
 # — sirf phone ki file mein save hota hai, GitHub par kabhi nahi jata.
+# v1.7.0: [11] me multi-ID check + aam password khud try hote hain.
 # ============================================================
 
 import json
@@ -139,7 +143,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.6.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.7.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -155,7 +159,7 @@ def show_menu():
     print(CYAN + "[8] " + RESET + "Facebook Login (Cookie se)")
     print(CYAN + "[9] " + RESET + "List mein ID dhoondo (ID/link se email)")
     print(CYAN + "[10] " + RESET + "Post par Like / Comment bhejo")
-    print(CYAN + "[11] " + RESET + "Password check karo (kaun sa password laga hai)")
+    print(CYAN + "[11] " + RESET + "Password check karo (ek se zyada IDs, aam password bhi)")
     print(CYAN + "[12] " + RESET + "Password list mein likho (apni ID ka password save karo)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
@@ -1406,118 +1410,189 @@ def add_password_to_list():
     print("[9] se check kar ke dekh lo, [11] se password test kar lo.")
 
 
+def _auto_passwords(first_name):
+    """User ke bataye hue aam password — [11] me khud try hote hain.
+    Sirf APNI IDs ke liye. first_name: ID ka first name (jaise Mansoor)."""
+    cands = []
+    names = []
+    if first_name:
+        fn = first_name.strip().split()[0]
+        if fn:
+            names.append(fn)
+            if fn.lower() != fn:
+                names.append(fn.lower())
+    for fn in names:
+        for tail in ("123", "1234", "1235", "786"):
+            cands.append(fn + tail)
+    for fixed in ("123456789", "12345678", "Pakistan", "pakistan", "786786"):
+        cands.append(fixed)
+    seen = set()
+    out = []
+    for c in cands:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def check_passwords():
     print(YELLOW + "=== Password Check Karo (apni ID ke liye) ===" + RESET)
     print("Sirf APNI ID ke liye — kisi aur ki ID par try mat karo.")
-    print("Tum ID ka link/code do ge, aur 3-4 password jo tumhe yaad hain,")
-    print("tool har password ko ek dafa try kar ke batayega kaun sa laga hua hai.")
-    print("Email list mein na ho to link/code se bhi try karta hai.")
+    print("Ek se zyada IDs bhi check kar sakte ho — comma se alag kar ke")
+    print("likho, koi limit nahi. Har ID par tumhare diye hue password ke")
+    print("saath tumhare bataye hue aam password bhi khud try honge:")
+    print("first name + 123 / 1234 / 1235 / 786, 12345678, 123456789,")
+    print("Pakistan, 786786.")
     print("Ghalat password par Facebook account lock bhi kar sakta hai —")
-    print("is liye sirf wohi password do jo tumhe yaad hain, andaza mat lagao.")
+    print("checkpoint/lock aate hi tool khud ruk jayega.")
     print("")
-    query = input("ID ka link / code / email do: ").strip()
-    if not query:
+    raw = input("ID links / codes / emails do (comma se alag karo): ").strip()
+    queries = [q.strip() for q in raw.split(",") if q.strip()]
+    if not queries:
         print("Kuch nahi diya.")
         return
-    identifier = None
-    id_kind = None
-    found = None
-    p = os.path.join(BASE, "my_ids.json")
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            entries = data if isinstance(data, list) else data.get("ids", [])
-            for e in entries:
-                if isinstance(e, dict) and _match_my_id_entry(e, query):
-                    found = e
-                    break
-        except Exception:
-            pass
-    if found:
-        email = (found.get("email") or "").strip()
-        if email:
-            identifier = email
-            id_kind = "email"
-            print("ID mili: %s — %s" % (found.get("name") or "-", email))
-        else:
-            print("ID mili: %s — is entry mein email nahi likha." % (found.get("name") or "-"))
-    if not identifier:
-        identifier, id_kind = _login_id_from_code(query)
-        if identifier and id_kind == "username":
-            print("List mein email nahi mila — username '%s' se try kar raha hun." % identifier)
-        elif identifier and id_kind == "number":
-            print("List mein email nahi mila — ID number '%s' se try kar raha hun." % identifier)
-            print("(Number se login na hua to email poochunga.)")
-    if not identifier:
-        identifier = input("Is ID ka email likho: ").strip()
-        id_kind = "email"
-    if not identifier:
-        print("Email ke baghair check nahi ho sakta.")
-        return
     print("")
-    print("Ab wo 3-4 password do jo tumhe yaad hain (ek line me ek password,")
+    print("Ab wo password do jo tumhe yaad hain (ek line me ek password,")
     print("khaali line de kar khatam karo — zyada se zyada 5).")
-    passwords = []
+    print("Yehi password har ID par try honge.")
+    import getpass
+    typed = []
     for i in range(1, 6):
         try:
-            import getpass
             pw = getpass.getpass("Password %d: " % i)
         except Exception:
             pw = input("Password %d: " % i)
         if not pw:
             break
-        passwords.append(pw)
-    if not passwords:
-        print("Koi password nahi diya.")
-        return
+        typed.append(pw)
+    if not typed:
+        print("Koi password nahi diya — sirf aam wale try karunga.")
     print("")
-    result, value = _try_passwords(identifier, passwords)
-    if result == "ok":
-        _print_check_ok(query, value)
-        return
-    if result == "checkpoint":
-        print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
-        print("Baaqi password try nahi kiye.")
-        return
-    if result == "locked":
-        print("Facebook ne account ko temporarily lock kar diya — ab ruk jao, kuch der baad try karo.")
-        print("Baaqi password try nahi kiye.")
-        return
-    if result == "error":
-        print("Network error — internet check kar ke dobara try karo.")
-        return
-    if result == "nomatch":
+    found_ok = []
+    not_found = []
+    stopped = False
+    for qi, query in enumerate(queries, 1):
+        if stopped:
+            break
+        print("--- ID %d / %d: %s ---" % (qi, len(queries), query))
+        identifier = None
+        id_kind = None
+        found = None
+        first_name = ""
+        p = os.path.join(BASE, "my_ids.json")
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                entries = data if isinstance(data, list) else data.get("ids", [])
+                for e in entries:
+                    if isinstance(e, dict) and _match_my_id_entry(e, query):
+                        found = e
+                        break
+            except Exception:
+                pass
+        if found:
+            first_name = ((found.get("name") or "").strip().split() or [""])[0]
+            email = (found.get("email") or "").strip()
+            if email:
+                identifier = email
+                id_kind = "email"
+                print("ID mili: %s — %s" % (found.get("name") or "-", email))
+            else:
+                print("ID mili: %s — is entry mein email nahi likha." % (found.get("name") or "-"))
+        if not identifier:
+            identifier, id_kind = _login_id_from_code(query)
+            if identifier and id_kind == "username":
+                print("List mein email nahi mila — username '%s' se try kar raha hun." % identifier)
+            elif identifier and id_kind == "number":
+                print("List mein email nahi mila — ID number '%s' se try kar raha hun." % identifier)
+                print("(Number se login na hua to email poochunga.)")
+        if not identifier:
+            identifier = input("Is ID ka email likho: ").strip()
+            id_kind = "email"
+        if not identifier:
+            print("Email ke baghair check nahi ho sakta.")
+            not_found.append((query, "email nahi mila"))
+            continue
+        if not first_name:
+            first_name = input("Is ID ka first name kya hai? (jaise Mansoor — khaali bhi chhod sakte ho): ").strip()
+        auto = _auto_passwords(first_name)
+        passwords = list(typed)
+        for c in auto:
+            if c not in passwords:
+                passwords.append(c)
+        print("Is ID par %d password try karunga (%d tumhare + %d aam wale)." % (len(passwords), len(typed), len(passwords) - len(typed)))
         print("")
-        print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
-        if id_kind == "number":
-            print("Ho sakta hai ID number (code) se login na hota ho — Facebook ko email chahiye.")
-        if id_kind == "email":
-            return
-    elif result == "no_account":
-        print("Is se koi account nahi mila — Facebook ko email chahiye.")
+        result, value = _try_passwords(identifier, passwords)
+        if result == "ok":
+            _print_check_ok(query, value)
+            found_ok.append((query, value))
+            continue
+        if result == "checkpoint":
+            print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
+            print("Baaqi IDs check nahi ki.")
+            not_found.append((query, "checkpoint"))
+            stopped = True
+            continue
+        if result == "locked":
+            print("Facebook ne account ko temporarily lock kar diya — ab ruk jao, kuch der baad try karo.")
+            print("Baaqi IDs check nahi ki.")
+            not_found.append((query, "lock"))
+            stopped = True
+            continue
+        if result == "error":
+            print("Network error — internet check kar ke dobara try karo.")
+            not_found.append((query, "network error"))
+            continue
+        if result == "nomatch":
+            print("")
+            print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
+            if id_kind == "number":
+                print("Ho sakta hai ID number (code) se login na hota ho — Facebook ko email chahiye.")
+            if id_kind == "email":
+                not_found.append((query, "koi password nahi laga"))
+                continue
+        elif result == "no_account":
+            print("Is se koi account nahi mila — Facebook ko email chahiye.")
+        print("")
+        new_email = input("Is ID ka email likho (email se dobara check kar dunga): ").strip()
+        if not new_email:
+            print("Email ke baghair aage check nahi ho sakta.")
+            not_found.append((query, "email nahi mila"))
+            continue
+        print("Email se dobara try kar raha hun...")
+        result, value = _try_passwords(new_email, passwords)
+        if result == "ok":
+            _print_check_ok(query, value)
+            found_ok.append((query, value))
+        elif result == "nomatch":
+            print("")
+            print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
+            not_found.append((query, "koi password nahi laga"))
+        elif result == "checkpoint":
+            print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
+            not_found.append((query, "checkpoint"))
+            stopped = True
+        elif result == "locked":
+            print("Facebook ne account ko temporarily lock kar diya — ab ruk jao, kuch der baad try karo.")
+            not_found.append((query, "lock"))
+            stopped = True
+        elif result == "error":
+            print("Network error — internet check kar ke dobara try karo.")
+            not_found.append((query, "network error"))
+        elif result == "no_account":
+            print("Is email se bhi koi account nahi mila — email ghalat ho sakta hai.")
+            not_found.append((query, "email se account nahi mila"))
     print("")
-    new_email = input("Is ID ka email likho (email se dobara check kar dunga): ").strip()
-    if not new_email:
-        print("Email ke baghair aage check nahi ho sakta.")
-        return
-    print("Email se dobara try kar raha hun...")
-    result, value = _try_passwords(new_email, passwords)
-    if result == "ok":
-        _print_check_ok(query, value)
-        return
-    if result == "nomatch":
-        print("")
-        print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
-    elif result == "checkpoint":
-        print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
-    elif result == "locked":
-        print("Facebook ne account ko temporarily lock kar diya — ab ruk jao, kuch der baad try karo.")
-    elif result == "error":
-        print("Network error — internet check kar ke dobara try karo.")
-    elif result == "no_account":
-        print("Is email se bhi koi account nahi mila — email ghalat ho sakta hai.")
-
+    print("=== Nateeja ===")
+    if found_ok:
+        for code, pw in found_ok:
+            print("OK — %s  |  Password: %s" % (code, pw))
+    else:
+        print("Kisi ID ka password nahi mila.")
+    for code, why in not_found:
+        print("Nahi mila: %s (%s)" % (code, why))
+    print("Session save NAHI ki — login tum khud karo ge (cookie ya browser se).")
 
 def menu():
     show_banner()
