@@ -105,7 +105,12 @@
 # andaza mat lagao. Checkpoint/lock aate hi tool khud ruk jata hai.
 # [12] Password list mein likho: ID do, password likho (dobara confirm)
 # — sirf phone ki file mein save hota hai, GitHub par kabhi nahi jata.
-# v1.7.0: [11] me multi-ID check + aam password khud try hote hain.
+# [13] Public friends mein se apni IDs check karo: apni ID ka code/link
+# do — us ki PUBLIC friends list khulti hai, list mein se sirf wohi IDs
+# check hoti hain jo tum chunoge (ya jo tumhari my_ids.json mein hain).
+# Baaki doston par password kabhi try nahi hota. Nateeja: milne par OK,
+# checkpoint par CP likha aata hai.
+# v1.8.0: [13] friends se apni IDs + OK/CP label.
 # ============================================================
 
 import json
@@ -143,7 +148,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.7.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.8.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -161,6 +166,7 @@ def show_menu():
     print(CYAN + "[10] " + RESET + "Post par Like / Comment bhejo")
     print(CYAN + "[11] " + RESET + "Password check karo (ek se zyada IDs, aam password bhi)")
     print(CYAN + "[12] " + RESET + "Password list mein likho (apni ID ka password save karo)")
+    print(CYAN + "[13] " + RESET + "Public friends mein se apni IDs check karo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -1435,22 +1441,8 @@ def _auto_passwords(first_name):
     return out
 
 
-def check_passwords():
-    print(YELLOW + "=== Password Check Karo (apni ID ke liye) ===" + RESET)
-    print("Sirf APNI ID ke liye — kisi aur ki ID par try mat karo.")
-    print("Ek se zyada IDs bhi check kar sakte ho — comma se alag kar ke")
-    print("likho, koi limit nahi. Har ID par tumhare diye hue password ke")
-    print("saath tumhare bataye hue aam password bhi khud try honge:")
-    print("first name + 123 / 1234 / 1235 / 786, 12345678, 123456789,")
-    print("Pakistan, 786786.")
-    print("Ghalat password par Facebook account lock bhi kar sakta hai —")
-    print("checkpoint/lock aate hi tool khud ruk jayega.")
-    print("")
-    raw = input("ID links / codes / emails do (comma se alag karo): ").strip()
-    queries = [q.strip() for q in raw.split(",") if q.strip()]
-    if not queries:
-        print("Kuch nahi diya.")
-        return
+def _ask_typed_passwords():
+    """Yaad wale password ek dafa pooch lo (zyada se zyada 5)."""
     print("")
     print("Ab wo password do jo tumhe yaad hain (ek line me ek password,")
     print("khaali line de kar khatam karo — zyada se zyada 5).")
@@ -1468,6 +1460,17 @@ def check_passwords():
     if not typed:
         print("Koi password nahi diya — sirf aam wale try karunga.")
     print("")
+    return typed
+
+
+def _check_id_list(queries, typed):
+    """IDs ki list par password check karo. Returns (found_ok, not_found).
+    found_ok: [(query, password)] — mil gaye, aage OK likha aata hai.
+    not_found: [(query, reason)] — reason 'checkpoint' (aage CP likha
+    aata hai) | 'lock' | 'network error' | 'koi password nahi laga' |
+    'email nahi mila' | 'email se account nahi mila'.
+    Sirf di hui IDs par try hota hai — koi aur ID nahi chhedi jati.
+    Checkpoint/lock aate hi poora run ruk jata hai."""
     found_ok = []
     not_found = []
     stopped = False
@@ -1529,6 +1532,7 @@ def check_passwords():
             found_ok.append((query, value))
             continue
         if result == "checkpoint":
+            print("CP — %s" % query)
             print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
             print("Baaqi IDs check nahi ki.")
             not_found.append((query, "checkpoint"))
@@ -1570,6 +1574,7 @@ def check_passwords():
             print("In %d password mein se koi bhi nahi laga — sahi password in mein nahi hai." % len(passwords))
             not_found.append((query, "koi password nahi laga"))
         elif result == "checkpoint":
+            print("CP — %s" % query)
             print("Facebook ne CHECKPOINT manga hai — ab ruk jao, browser me khud karo.")
             not_found.append((query, "checkpoint"))
             stopped = True
@@ -1591,8 +1596,125 @@ def check_passwords():
     else:
         print("Kisi ID ka password nahi mila.")
     for code, why in not_found:
-        print("Nahi mila: %s (%s)" % (code, why))
+        if why == "checkpoint":
+            print("CP — %s (checkpoint — browser me khud karo)" % code)
+        else:
+            print("Nahi mila: %s (%s)" % (code, why))
     print("Session save NAHI ki — login tum khud karo ge (cookie ya browser se).")
+    return found_ok, not_found
+
+
+def check_passwords():
+    print(YELLOW + "=== Password Check Karo (apni ID ke liye) ===" + RESET)
+    print("Sirf APNI ID ke liye — kisi aur ki ID par try mat karo.")
+    print("Ek se zyada IDs bhi check kar sakte ho — comma se alag kar ke")
+    print("likho, koi limit nahi. Har ID par tumhare diye hue password ke")
+    print("saath tumhare bataye hue aam password bhi khud try honge:")
+    print("first name + 123 / 1234 / 1235 / 786, 12345678, 123456789,")
+    print("Pakistan, 786786.")
+    print("Milne par aage OK likha aayega, checkpoint par CP likha aayega.")
+    print("Ghalat password par Facebook account lock bhi kar sakta hai —")
+    print("checkpoint/lock aate hi tool khud ruk jayega.")
+    print("")
+    raw = input("ID links / codes / emails do (comma se alag karo): ").strip()
+    queries = [q.strip() for q in raw.split(",") if q.strip()]
+    if not queries:
+        print("Kuch nahi diya.")
+        return
+    typed = _ask_typed_passwords()
+    _check_id_list(queries, typed)
+
+
+def check_friends_passwords():
+    """[13] Apni ID ke public friends mein se apni IDs dhoondo + password check karo.
+    Sirf wohi IDs check hoti hain jo tum chunoge (ya jo tumhari apni list
+    my_ids.json mein hain) — baaki doston par password kabhi try nahi hota."""
+    print(YELLOW + "=== Public Friends Mein Se Apni IDs Check Karo ===" + RESET)
+    print("Apni ID ka code/link do — us ID ki PUBLIC friends list khulegi.")
+    print("Us list mein se sirf wohi IDs check hongi jo TUM chunoge,")
+    print("ya jo tumhari apni list (my_ids.json) mein hain.")
+    print("Baaki doston par password kabhi try nahi hoga.")
+    print("")
+    who = input("Apni ID ka code / link / username do: ").strip()
+    if not who:
+        print("Kuch nahi diya.")
+        return
+    friends = []
+    if load_cookies():
+        print("Login session se friends list khol raha hun...")
+        friends = _fetch_friends_online(who)
+        if not friends:
+            print("Seedha fetch se koi dost nahi mila — file wala tareeqa try karta hun.")
+    if not friends:
+        found_file = None
+        for fname in ("friends.html", "friends.mhtml", "public-friends.html"):
+            p = os.path.join(BASE, fname)
+            if os.path.exists(p):
+                found_file = fname
+                friends = load_friends_file(p)
+                print("%s se parha gaya." % fname)
+                break
+        if not found_file:
+            print("friends.html nahi mili — is liye list nahi ban saki.")
+            print("")
+            print("Tareeqa:")
+            print("1. Browser me us ID ki profile kholo, Friends tab par jao.")
+            print("2. Page ko save karo (Chrome: menu > Download / Save page).")
+            print("3. File ka naam friends.html rakho aur is folder me daalo.")
+            print("4. Phir [13] dabao.")
+            print("Login ho to [8] se login karo — phir [13] seedha fetch karega.")
+            return
+    if not friends:
+        print("Friends list khaali hai.")
+        return
+    my_ids = set()
+    p = os.path.join(BASE, "my_ids.json")
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            entries = data if isinstance(data, list) else data.get("ids", [])
+            for e in entries:
+                if isinstance(e, dict):
+                    if e.get("fb_id"):
+                        my_ids.add(str(e.get("fb_id")))
+                    link = e.get("profile_link") or ""
+                    fid = id_from_url(link) if link else None
+                    if fid:
+                        my_ids.add(str(fid))
+        except Exception:
+            pass
+    print("")
+    print("Dost mile: %d" % len(friends))
+    in_list_idx = []
+    for i, (name, fid, url) in enumerate(friends, 1):
+        mark = ""
+        if str(fid) in my_ids:
+            mark = "  <-- LIST MEIN HAI (tumhari ID)"
+            in_list_idx.append(i)
+        print("%d. %s — %s%s" % (i, name, fid, mark))
+    print("")
+    pick = input("Kaun si check karun? Number likho, comma se alag karo (khaali Enter = sirf list wali): ").strip()
+    chosen = []
+    if pick:
+        for part in pick.split(","):
+            part = part.strip()
+            if part.isdigit():
+                n = int(part)
+                if 1 <= n <= len(friends):
+                    chosen.append(friends[n - 1])
+    else:
+        chosen = [friends[i - 1] for i in in_list_idx]
+    if not chosen:
+        print("Koi ID nahi chuni.")
+        return
+    print("")
+    print("Check kar raha hun: %d IDs" % len(chosen))
+    typed = _ask_typed_passwords()
+    queries = []
+    for name, fid, url in chosen:
+        queries.append(url if url else fid)
+    _check_id_list(queries, typed)
 
 def menu():
     show_banner()
@@ -1638,11 +1760,13 @@ def menu():
             check_passwords()
         elif choice == "12":
             add_password_to_list()
+        elif choice == "13":
+            check_friends_passwords()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1682,5 +1806,7 @@ if __name__ == "__main__":
         check_passwords()
     elif len(sys.argv) > 1 and sys.argv[1] == "setpw":
         add_password_to_list()
+    elif len(sys.argv) > 1 and sys.argv[1] == "friends-check":
+        check_friends_passwords()
     else:
         menu()
