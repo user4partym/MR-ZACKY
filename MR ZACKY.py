@@ -65,6 +65,22 @@
 # account khul jata hai. Sirf apne phone me rakho.
 # Checkpoint (code/selfie) aaye to script ruk jata hai — us ko
 # browser me khud karo, phir cookie paste kar do.
+#
+# LIST MEIN ID DHOONDO: Menu se [9] chunno — Facebook ID code,
+# profile link, email ya naam do. Script tumhari apni saved lists
+# mein dhoondhega:
+#   (1) my_ids.json — tumhari apni IDs wali list (ID se email).
+#       Format: [{"name": "Maria Dov", "email": "man50or1+1@yandex.com",
+#       "fb_id": "61596395845195", "profile_link": "https://...",
+#       "status": "Active"}] — format ke liye my_ids.example.json dekho.
+#       my_ids.json is folder me rakho (GitHub par mat dalo — ye
+#       tumhari private list hai, sirf apne phone me rakho).
+#   (2) friends.json / friends.html — doston wali list (naam ya ID se).
+#   (3) MR-ZACKY-*-ids.txt / group-members.txt — sirf batayega ke
+#       ye ID us file mein hai ya nahi.
+# NOTE: Facebook ID se number/Gmail nahi nikalta — ye option sirf
+# tumhari apni list mein dhoondhta hai. List mein na ho to
+# facebook.com/login/identify par masked email/number dekho.
 # ============================================================
 
 import json
@@ -102,7 +118,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.0.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.1.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -116,6 +132,7 @@ def show_menu():
     print(CYAN + "[6] " + RESET + "Members ki ID Public Check")
     print(CYAN + "[7] " + RESET + "Public ID ki Friends List se IDs Nikalo")
     print(CYAN + "[8] " + RESET + "Facebook Login (Cookie se)")
+    print(CYAN + "[9] " + RESET + "List mein ID dhoondo (ID/link se email)")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -909,6 +926,168 @@ def friends_ids():
     _write_friends_ids(friends)
 
 
+def _norm_text(s):
+    return " ".join(str(s or "").strip().lower().split())
+
+
+def _match_my_id_entry(entry, query):
+    """my_ids.json ki entry query se milti hai ya nahi."""
+    if not isinstance(entry, dict):
+        return False
+    name = _norm_text(entry.get("name"))
+    email = _norm_text(entry.get("email"))
+    fid = str(entry.get("fb_id", "") or entry.get("fbId", "") or "").strip()
+    link = str(entry.get("profile_link", "") or entry.get("profileLink", "") or "").strip()
+    q = _norm_text(query)
+    if not q:
+        return False
+    q_digits = re.sub(r"\D", "", query)
+    if q.replace(" ", "").isdigit():
+        # Sirf number diya hai — poora ID milna chahiye.
+        if q_digits and fid and q_digits == fid:
+            return True
+        return False
+    # Link diya ho to us se ID nikal kar milao.
+    q_link_id = id_from_url(query)
+    if q_link_id:
+        if q_link_id == fid:
+            return True
+        if q_link_id == id_from_url(link):
+            return True
+    # Naam ya email se (poora ya hissa).
+    if q in name or q in email:
+        return True
+    if q in _norm_text(link):
+        return True
+    return False
+
+
+def _search_my_ids(query):
+    """my_ids.json me dhoondo. None = file nahi hai, [] = nahi mili, list = mili."""
+    p = os.path.join(BASE, "my_ids.json")
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    entries = data if isinstance(data, list) else data.get("ids", [])
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if _match_my_id_entry(e, query)]
+
+
+def _search_friends(query):
+    """friends.json / friends.html me naam ya ID se dhoondo.
+    None = file nahi hai, [] = nahi mili, list = mili."""
+    friends = None
+    if os.path.exists(os.path.join(BASE, "friends.json")):
+        try:
+            friends = load_json(os.path.join(BASE, "friends.json"))
+        except Exception:
+            friends = []
+    elif os.path.exists(os.path.join(BASE, "friends.html")):
+        try:
+            friends = load_html(os.path.join(BASE, "friends.html"))
+        except Exception:
+            friends = []
+    if friends is None:
+        return None
+    q = _norm_text(query)
+    q_digits = re.sub(r"\D", "", query or "")
+    out = []
+    for name, fid, url in friends:
+        if q and (q in _norm_text(name) or q == _norm_text(fid)):
+            out.append((name, fid, url))
+        elif q_digits and fid and q_digits == fid:
+            out.append((name, fid, url))
+    return out
+
+
+def _search_id_files(query):
+    """Bare ID wali txt files me ID dhoondo. Returns [file names]."""
+    q_digits = re.sub(r"\D", "", query or "")
+    if not q_digits:
+        return []
+    hits = []
+    for fname in ("MR-ZACKY-friends-ids.txt", "MR-ZACKY-group-members.txt",
+                  "MR-ZACKY-public-ids.txt", "MR-ZACKY-ids.txt"):
+        p = os.path.join(BASE, fname)
+        if not os.path.exists(p):
+            continue
+        with open(p, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if re.search(r"(?<!\d)" + re.escape(q_digits) + r"(?!\d)", line):
+                    hits.append(fname)
+                    break
+    return hits
+
+
+def search_lists(query=None):
+    print(YELLOW + "=== List mein ID dhoondo ===" + RESET)
+    print("Facebook ID code, profile link, email ya naam do — tool")
+    print("tumhari apni saved lists mein dhoondhega aur batayega ke")
+    print("wo ID kis email par bani thi (agar list mein hai to).")
+    print("")
+    print("NOTE: Facebook ID se number/Gmail nahi nikalta — ye sirf")
+    print("tumhari apni list mein dhoondhta hai. List mein na ho to")
+    print("facebook.com/login/identify par masked email/number dekho.")
+    print("")
+    if query is None:
+        query = input("ID / link / email / naam do: ").strip()
+    else:
+        query = str(query).strip()
+    if not query:
+        print("Kuch likha nahi.")
+        return
+    found_any = False
+    # 1) my_ids.json — ID se email
+    res = _search_my_ids(query)
+    if res is None:
+        print("")
+        print("my_ids.json nahi mili — apni IDs wali list mein nahi")
+        print("dhoondh saka. my_ids.json ko is folder me rakho")
+        print("(format ke liye my_ids.example.json dekho).")
+    elif res:
+        found_any = True
+        print("")
+        print("--- Meri IDs wali list (my_ids.json) mein mili ---")
+        for e in res:
+            print("Naam   : %s" % (e.get("name") or "-"))
+            print("Email  : %s" % (e.get("email") or "-"))
+            print("FB ID  : %s" % (e.get("fb_id") or e.get("fbId") or "-"))
+            print("Link   : %s" % (e.get("profile_link") or e.get("profileLink") or "-"))
+            print("Status : %s" % (e.get("status") or e.get("activation") or "-"))
+            print("")
+    # 2) friends.json / friends.html — naam ya ID se dost
+    fres = _search_friends(query)
+    if fres is None:
+        print("friends.json/html nahi mili — doston wali list mein nahi dhoondh saka.")
+    elif fres:
+        found_any = True
+        print("")
+        print("--- Doston wali list (friends.json) mein mili ---")
+        for name, fid, url in fres[:20]:
+            print(" - %s (%s) %s" % (name, fid, url))
+        if len(fres) > 20:
+            print(" ... aur %d aur" % (len(fres) - 20))
+    # 3) Bare ID wali files
+    hits = _search_id_files(query)
+    if hits:
+        found_any = True
+        print("")
+        print("--- ID wali files mein mili ---")
+        for h in hits:
+            print(" - %s mein ye ID hai" % h)
+    if not found_any:
+        print("")
+        print("Kisi list mein nahi mili.")
+        print("Is ka matlab: ye ID tumhari saved lists mein nahi hai.")
+        print("Number/Gmail jan'ne ke liye facebook.com/login/identify")
+        print("par ID/link dalo — Facebook masked email/number dikhayega.")
+
+
 def menu():
     show_banner()
     # Login ho to upar hi dikha do ke is time kaun si ID logged in hai.
@@ -945,11 +1124,13 @@ def menu():
             friends_ids()
         elif choice == "8":
             fb_login()
+        elif choice == "9":
+            search_lists()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -979,5 +1160,7 @@ if __name__ == "__main__":
         friends_ids()
     elif len(sys.argv) > 1 and sys.argv[1] == "login":
         fb_login()
+    elif len(sys.argv) > 1 and sys.argv[1] == "search":
+        search_lists(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
         menu()
