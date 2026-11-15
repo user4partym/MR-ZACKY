@@ -118,10 +118,8 @@
 # us ki ID ki friends list mein saari IDs us ki hi hain).
 # v1.11.0: [7] ab naam wali JSON list bhi banata hai (public-friends.json);
 # [13] us list aur MR-ZACKY-friends-ids.txt se bhi check kar sakta hai.
-# v1.12.0: [14] post par kai IDs se likes — har session se ek like.
-# 'Farzi' ginti nahi ban sakti: har like ke peeche ek asli login hota hai.
-# YouTube views tool se nahi milte (bot views YouTube gin-ta hi nahi,
-# channel ko strike lag sakti hai) — is liye views wala feature NAHI banaya.
+# v1.13.0: [15] post ke likes + YouTube video ke views check karo
+# (asli ginti dikhata hai — kuch bhejta nahi).
 # ============================================================
 
 import json
@@ -159,7 +157,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.12.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.13.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -179,6 +177,7 @@ def show_menu():
     print(CYAN + "[12] " + RESET + "Password list mein likho (apni ID ka password save karo)")
     print(CYAN + "[13] " + RESET + "Public friends mein se apni IDs check karo")
     print(CYAN + "[14] " + RESET + "Post par likes bhejo (kai IDs se — 10 likes)")
+    print(CYAN + "[15] " + RESET + "Post ke likes / video ke views check karo")
     print(CYAN + "[0] " + RESET + "Exit")
     print("")
 
@@ -1304,6 +1303,90 @@ def like_one_post(cookie, post_link):
     return "ok", "bhej diya — post khol kar confirm kar lo"
 
 
+def parse_youtube_views(html):
+    """YouTube watch page HTML se (title, views) nikalo — views na mile to None."""
+    title = None
+    m = re.search(r"<title>([^<]+)</title>", html or "")
+    if m:
+        title = m.group(1).strip()
+    views = None
+    for pat in (r'"viewCount":"?(\d+)"?',
+                r'"simpleText":"([\d,]+) views"',
+                r'([\d,]+) views</'):
+        m = re.search(pat, html or "")
+        if m:
+            views = m.group(1).replace(",", "")
+            break
+    return title, views
+
+
+def parse_fb_likes(html):
+    """mbasic post page se (likes, already_liked) nikalo — likes na mile to None."""
+    if not html:
+        return None, False
+    already = "Unlike" in html
+    for pat in (r'([\d,]+)\s+people like this',
+                r'([\d,]+)\s+likes?',
+                r'Like[^<]*?([\d,]+)'):
+        m = re.search(pat, html, re.IGNORECASE)
+        if m:
+            return m.group(1).replace(",", ""), already
+    return None, already
+
+
+def check_post_counts(link=None):
+    """[15] Post ke likes + YouTube video ke views check karo — ASLI ginti.
+    Ye kuch bhejta nahi, sirf dikhata hai ke post/video par abhi
+    kitne likes/views hain — ta ke pata chale ke like/view pahuncha ya nahi."""
+    print(YELLOW + "=== Post ke Likes / Video ke Views Check Karo ===" + RESET)
+    print("Ye sirf ginti dikhata hai — kuch bhejta nahi. Like bhejne ke")
+    print("liye [14] hai (apni logged-in IDs se), views YouTube sirf")
+    print("asli dekhne par ginta hai.")
+    print("")
+    if not link:
+        link = input("Post ya video ka link do: ").strip()
+    if not link:
+        print("Link khali hai.")
+        return
+    if "youtube.com" in link or "youtu.be" in link:
+        print("YouTube video khol raha hun...")
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                link, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            print("Video nahi khuli: %s" % e)
+            return
+        title, views = parse_youtube_views(html)
+        if title:
+            print("Video: %s" % title)
+        if views:
+            print("Views: %s" % views)
+        else:
+            print("Views nahi mile — video private ho sakti hai ya YouTube ne page nahi diya.")
+        return
+    if "facebook.com" in link:
+        if "mbasic.facebook.com" not in link:
+            link = re.sub(r"https?://(?:www\.|m\.)?facebook\.com", "https://mbasic.facebook.com", link)
+        page = fb_fetch(link)
+        if not page:
+            print("Post nahi khula — [8] se pehle login karo.")
+            return
+        if "login.php" in page and "Log in" in page:
+            print("Session expire ho gayi — [8] se dobara login karo.")
+            return
+        likes, already = parse_fb_likes(page)
+        if likes:
+            print("Likes: %s" % likes)
+        else:
+            print("Likes ki ginti page par nahi mili.")
+        if already:
+            print("Tumhari is ID ne is post ko pehle se like kiya hua hai.")
+        return
+    print("Link Facebook post ya YouTube video ka hona chahiye.")
+
 def send_likes_multi(post_link=None, want=10):
     """[14] Post par kai IDs se likes bhejo — har session se ek like.
     Har like tumhari ek logged-in ID se aata hai — 'farzi' ginti nahi
@@ -1940,11 +2023,13 @@ def menu():
             check_friends_passwords()
         elif choice == "14":
             send_likes_multi()
+        elif choice == "15":
+            check_post_counts()
         elif choice == "0":
             print("Allah Hafiz!")
             return
         else:
-            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 ya 0 likho.")
+            print("Ghalat option — 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 ya 0 likho.")
 
 
 if __name__ == "__main__":
@@ -1993,5 +2078,7 @@ if __name__ == "__main__":
         except ValueError:
             want = 10
         send_likes_multi(sys.argv[2] if len(sys.argv) > 2 else None, want)
+    elif len(sys.argv) > 1 and sys.argv[1] == "check":
+        check_post_counts(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
         menu()
