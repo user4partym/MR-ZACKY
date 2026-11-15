@@ -116,6 +116,8 @@
 # v1.10.0: [13] me 'sab' — saari friends list ek saath check hoti hai.
 # 'sab' sirf tab jab saari list user ki apni IDs hon (user ka kehna:
 # us ki ID ki friends list mein saari IDs us ki hi hain).
+# v1.11.0: [7] ab naam wali JSON list bhi banata hai (public-friends.json);
+# [13] us list aur MR-ZACKY-friends-ids.txt se bhi check kar sakta hai.
 # ============================================================
 
 import json
@@ -153,7 +155,7 @@ def show_banner():
     print(GREEN + "[=] " + RESET + MAGENTA + "WHATSAPP " + RESET + ": " + WHITE + "+923498124698" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "FEATURE  " + RESET + ": " + WHITE + "My Fb ids" + RESET)
     print(GREEN + "[=] " + RESET + MAGENTA + "STATUS   " + RESET + ": " + WHITE + "FREE" + RESET)
-    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.10.0" + RESET)
+    print(GREEN + "[=] " + RESET + MAGENTA + "VERSION  " + RESET + ": " + WHITE + "1.11.0" + RESET)
     print(GREEN + "=" * 64 + RESET)
 
 
@@ -206,10 +208,11 @@ def load_json(path):
         if not isinstance(fr, dict):
             continue
         name = str(fr.get("name", "")).strip()
-        url = str(fr.get("url", "") or fr.get("uri", "")).strip()
-        if not name and not url:
+        url = str(fr.get("url", "") or fr.get("uri", "") or fr.get("profile_link", "")).strip()
+        fid = id_from_url(url) or str(fr.get("fb_id", "")).strip()
+        if not name and not url and not fid:
             continue
-        out.append((name, id_from_url(url), url))
+        out.append((name, fid, url))
     return out
 
 
@@ -925,26 +928,47 @@ def _fetch_friends_online(who):
 
 
 def _write_friends_ids(friends):
-    """Doston ki list se ID-only file likhna. Returns kitni IDs likhi."""
+    """Doston ki list se ID-only file likhna + naam wali JSON file.
+    Returns kitni IDs likhi. [13] phir in files se bhi check kar sakta hai."""
     import time
     out_path = os.path.join(BASE, "MR-ZACKY-friends-ids.txt")
+    json_path = os.path.join(BASE, "public-friends.json")
     total = 0
+    resolved = []
     with open(out_path, "w", encoding="utf-8") as f:
         for name, fid, url in friends:
             # List me sirf ID code — naam nahi.
             if fid.isdigit():
                 f.write("%s\n" % fid)
+                resolved.append((name, fid, url))
                 total += 1
             else:
                 fb_id = _lookup_via_urllib(fid) or _lookup_via_curl(fid)
                 if fb_id:
                     f.write("%s\n" % fb_id)
+                    resolved.append((name, fb_id, url))
                     total += 1
                 time.sleep(1)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump({"friends": [{"name": n, "fb_id": i,
+                                "profile_link": u} for n, i, u in resolved]},
+                  f, ensure_ascii=False, indent=2)
     print("Total doston ki IDs mili: %d" % total)
     print("List save ho gayi: %s" % out_path)
-    print("List me sirf ID code hain (naam nahi).")
+    print("Naam wali list save ho gayi: %s" % json_path)
+    print("List me sirf ID code hain (naam nahi) — JSON me naam bhi hain.")
     return total
+
+
+def load_friends_ids_txt(path):
+    """[7] wali MR-ZACKY-friends-ids.txt se IDs parhna (har line ek ID code)."""
+    out = []
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            fid = line.strip()
+            if fid.isdigit():
+                out.append(("", fid, "https://www.facebook.com/profile.php?id=" + fid))
+    return out
 
 
 def friends_ids():
@@ -1669,11 +1693,17 @@ def check_friends_passwords():
             print("File wala tareeqa try karta hun.")
     if not friends:
         found_file = None
-        for fname in ("friends.html", "friends.mhtml", "public-friends.html"):
+        for fname in ("friends.html", "friends.mhtml", "public-friends.html",
+                      "public-friends.json", "MR-ZACKY-friends-ids.txt"):
             p = os.path.join(BASE, fname)
             if os.path.exists(p):
                 found_file = fname
-                friends = load_friends_file(p)
+                if fname.endswith(".json"):
+                    friends = load_json(p)
+                elif fname.endswith(".txt"):
+                    friends = load_friends_ids_txt(p)
+                else:
+                    friends = load_friends_file(p)
                 print("%s se parha gaya." % fname)
                 break
         if not found_file:
@@ -1684,6 +1714,8 @@ def check_friends_passwords():
             print("2. Page ko save karo (Chrome: menu > Download / Save page).")
             print("3. File ka naam friends.html rakho aur is folder me daalo.")
             print("4. Phir [13] dabao.")
+            print("Ya [7] se list banao (MR-ZACKY-friends-ids.txt) — phir [13]")
+            print("usi list se check karega.")
             print("Login ho to [8] se login karo — phir [13] seedha fetch karega.")
             return
     if not friends:
